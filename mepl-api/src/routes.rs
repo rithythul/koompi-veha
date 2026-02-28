@@ -47,6 +47,38 @@ pub fn create_router(state: AppState) -> Router {
             get(list_schedules).post(create_schedule),
         )
         .route("/api/schedules/{id}", delete(delete_schedule))
+        // Zones
+        .route("/api/zones", get(list_zones_handler).post(create_zone_handler))
+        .route(
+            "/api/zones/{id}",
+            get(get_zone_detail_handler).put(update_zone_handler).delete(delete_zone_handler),
+        )
+        // Advertisers
+        .route("/api/advertisers", get(list_advertisers_handler).post(create_advertiser_handler))
+        .route(
+            "/api/advertisers/{id}",
+            get(get_advertiser_handler).put(update_advertiser_handler).delete(delete_advertiser_handler),
+        )
+        // Campaigns
+        .route("/api/campaigns", get(list_campaigns_handler).post(create_campaign_handler))
+        .route(
+            "/api/campaigns/{id}",
+            get(get_campaign_handler).put(update_campaign_handler).delete(delete_campaign_handler),
+        )
+        .route("/api/campaigns/{id}/activate", post(activate_campaign_handler))
+        .route("/api/campaigns/{id}/pause", post(pause_campaign_handler))
+        .route(
+            "/api/campaigns/{id}/creatives",
+            get(list_creatives_handler).post(create_creative_handler),
+        )
+        // Creatives
+        .route("/api/creatives/{id}", delete(delete_creative_handler))
+        // Bookings
+        .route("/api/bookings", get(list_bookings_handler).post(create_booking_handler))
+        .route(
+            "/api/bookings/{id}",
+            get(get_booking_handler).put(update_booking_handler).delete(delete_booking_handler),
+        )
         // WebSocket
         .route("/ws/agent", get(ws_agent_handler))
         // Auth middleware — applied to all routes above
@@ -634,4 +666,419 @@ async fn ws_agent_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| ws::handle_agent_socket(socket, state.agents, state.db, state.api_key))
+}
+
+// ── Zones ───────────────────────────────────────────────────────────────
+
+async fn list_zones_handler(State(state): State<AppState>) -> impl IntoResponse {
+    match db::list_zones(&state.db).await {
+        Ok(zones) => Json(zones).into_response(),
+        Err(e) => {
+            tracing::error!("list_zones: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn create_zone_handler(
+    State(state): State<AppState>,
+    Json(input): Json<CreateZone>,
+) -> impl IntoResponse {
+    match db::create_zone(&state.db, &input).await {
+        Ok(zone) => (StatusCode::CREATED, Json(zone)).into_response(),
+        Err(e) => {
+            tracing::error!("create_zone: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn get_zone_detail_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let zone = match db::get_zone(&state.db, &id).await {
+        Ok(Some(z)) => z,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("get_zone: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let children = match db::get_zone_children(&state.db, &id).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("get_zone_children: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let board_count = match db::get_zone_board_count(&state.db, &id).await {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("get_zone_board_count: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    Json(ZoneDetail { zone, children, board_count }).into_response()
+}
+
+async fn update_zone_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<CreateZone>,
+) -> impl IntoResponse {
+    match db::update_zone(&state.db, &id, &input).await {
+        Ok(true) => {
+            match db::get_zone(&state.db, &id).await {
+                Ok(Some(zone)) => Json(zone).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update_zone: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_zone_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::delete_zone(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_zone: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Advertisers ─────────────────────────────────────────────────────────
+
+async fn list_advertisers_handler(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    match db::list_advertisers(&state.db, params.page, params.per_page).await {
+        Ok((advertisers, total)) => Json(PaginatedResponse {
+            data: advertisers,
+            total,
+            page: params.page,
+            per_page: params.per_page,
+        }).into_response(),
+        Err(e) => {
+            tracing::error!("list_advertisers: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn create_advertiser_handler(
+    State(state): State<AppState>,
+    Json(input): Json<CreateAdvertiser>,
+) -> impl IntoResponse {
+    match db::create_advertiser(&state.db, &input).await {
+        Ok(advertiser) => (StatusCode::CREATED, Json(advertiser)).into_response(),
+        Err(e) => {
+            tracing::error!("create_advertiser: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn get_advertiser_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::get_advertiser(&state.db, &id).await {
+        Ok(Some(advertiser)) => Json(advertiser).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("get_advertiser: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn update_advertiser_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<CreateAdvertiser>,
+) -> impl IntoResponse {
+    match db::update_advertiser(&state.db, &id, &input).await {
+        Ok(true) => {
+            match db::get_advertiser(&state.db, &id).await {
+                Ok(Some(advertiser)) => Json(advertiser).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update_advertiser: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_advertiser_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::delete_advertiser(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_advertiser: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Campaigns ───────────────────────────────────────────────────────────
+
+async fn list_campaigns_handler(
+    State(state): State<AppState>,
+    Query(filter): Query<CampaignFilter>,
+) -> impl IntoResponse {
+    match db::list_campaigns(&state.db, &filter).await {
+        Ok((campaigns, total)) => Json(PaginatedResponse {
+            data: campaigns,
+            total,
+            page: filter.page,
+            per_page: filter.per_page,
+        }).into_response(),
+        Err(e) => {
+            tracing::error!("list_campaigns: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn create_campaign_handler(
+    State(state): State<AppState>,
+    Json(input): Json<CreateCampaign>,
+) -> impl IntoResponse {
+    match db::create_campaign(&state.db, &input).await {
+        Ok(campaign) => (StatusCode::CREATED, Json(campaign)).into_response(),
+        Err(e) => {
+            tracing::error!("create_campaign: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn get_campaign_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::get_campaign(&state.db, &id).await {
+        Ok(Some(campaign)) => Json(campaign).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("get_campaign: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn update_campaign_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<CreateCampaign>,
+) -> impl IntoResponse {
+    match db::update_campaign(&state.db, &id, &input).await {
+        Ok(true) => {
+            match db::get_campaign(&state.db, &id).await {
+                Ok(Some(campaign)) => Json(campaign).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update_campaign: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_campaign_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::delete_campaign(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_campaign: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn activate_campaign_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::activate_campaign(&state.db, &id).await {
+        Ok(true) => {
+            match db::get_campaign(&state.db, &id).await {
+                Ok(Some(campaign)) => Json(campaign).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("activate_campaign: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn pause_campaign_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::pause_campaign(&state.db, &id).await {
+        Ok(true) => {
+            match db::get_campaign(&state.db, &id).await {
+                Ok(Some(campaign)) => Json(campaign).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("pause_campaign: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Creatives ───────────────────────────────────────────────────────────
+
+async fn list_creatives_handler(
+    State(state): State<AppState>,
+    Path(campaign_id): Path<String>,
+) -> impl IntoResponse {
+    match db::list_creatives_by_campaign(&state.db, &campaign_id).await {
+        Ok(creatives) => Json(creatives).into_response(),
+        Err(e) => {
+            tracing::error!("list_creatives: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn create_creative_handler(
+    State(state): State<AppState>,
+    Path(campaign_id): Path<String>,
+    Json(input): Json<CreateCreative>,
+) -> impl IntoResponse {
+    match db::create_creative(&state.db, &campaign_id, &input).await {
+        Ok(creative) => (StatusCode::CREATED, Json(creative)).into_response(),
+        Err(e) => {
+            tracing::error!("create_creative: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_creative_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::delete_creative(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_creative: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Bookings ────────────────────────────────────────────────────────────
+
+async fn list_bookings_handler(
+    State(state): State<AppState>,
+    Query(filter): Query<BookingFilter>,
+) -> impl IntoResponse {
+    match db::list_bookings(&state.db, &filter).await {
+        Ok((bookings, total)) => Json(PaginatedResponse {
+            data: bookings,
+            total,
+            page: filter.page,
+            per_page: filter.per_page,
+        }).into_response(),
+        Err(e) => {
+            tracing::error!("list_bookings: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn create_booking_handler(
+    State(state): State<AppState>,
+    Json(input): Json<CreateBooking>,
+) -> impl IntoResponse {
+    match db::create_booking(&state.db, &input).await {
+        Ok(booking) => (StatusCode::CREATED, Json(booking)).into_response(),
+        Err(e) => {
+            tracing::error!("create_booking: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn get_booking_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::get_booking(&state.db, &id).await {
+        Ok(Some(booking)) => Json(booking).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("get_booking: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn update_booking_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<CreateBooking>,
+) -> impl IntoResponse {
+    match db::update_booking(&state.db, &id, &input).await {
+        Ok(true) => {
+            match db::get_booking(&state.db, &id).await {
+                Ok(Some(booking)) => Json(booking).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update_booking: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_booking_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::delete_booking(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_booking: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
 }

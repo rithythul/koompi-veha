@@ -151,3 +151,164 @@ pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
+
+// ── DOOH Models ───────────────────────────────────────────────────────
+
+// ── Zones ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Zone {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub zone_type: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateZone {
+    pub name: String,
+    pub parent_id: Option<String>,
+    #[serde(default = "default_zone_type")]
+    pub zone_type: String,
+}
+
+fn default_zone_type() -> String {
+    "custom".to_string()
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ZoneDetail {
+    #[serde(flatten)]
+    pub zone: Zone,
+    pub children: Vec<Zone>,
+    pub board_count: i64,
+}
+
+// ── Advertisers ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Advertiser {
+    pub id: String,
+    pub name: String,
+    pub contact_name: Option<String>,
+    pub contact_email: Option<String>,
+    pub contact_phone: Option<String>,
+    pub is_house: bool,
+    pub notes: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateAdvertiser {
+    pub name: String,
+    pub contact_name: Option<String>,
+    pub contact_email: Option<String>,
+    pub contact_phone: Option<String>,
+    pub notes: Option<String>,
+}
+
+// ── Campaigns ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Campaign {
+    pub id: String,
+    pub advertiser_id: String,
+    pub name: String,
+    pub status: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateCampaign {
+    pub advertiser_id: String,
+    pub name: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CampaignFilter {
+    pub advertiser_id: Option<String>,
+    pub status: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_per_page")]
+    pub per_page: u32,
+}
+
+// ── Creatives ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Creative {
+    pub id: String,
+    pub campaign_id: String,
+    pub media_id: String,
+    pub name: Option<String>,
+    pub duration_secs: Option<i32>,
+    pub status: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateCreative {
+    pub media_id: String,
+    pub name: Option<String>,
+    pub duration_secs: Option<i32>,
+}
+
+// ── Bookings ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Booking {
+    pub id: String,
+    pub campaign_id: String,
+    pub booking_type: String,
+    pub target_type: String,
+    pub target_id: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    pub days_of_week: String,
+    pub slot_duration_secs: i32,
+    pub slots_per_loop: i32,
+    pub priority: i32,
+    pub status: String,
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateBooking {
+    pub campaign_id: String,
+    pub booking_type: String,
+    pub target_type: String,
+    pub target_id: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub start_time: Option<String>,
+    pub end_time: Option<String>,
+    pub days_of_week: Option<String>,
+    pub slot_duration_secs: Option<i32>,
+    pub slots_per_loop: Option<i32>,
+    pub priority: Option<i32>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BookingFilter {
+    pub campaign_id: Option<String>,
+    pub target_type: Option<String>,
+    pub status: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_per_page")]
+    pub per_page: u32,
+}
