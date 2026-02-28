@@ -8,7 +8,7 @@ fn test_null_sink_counts_frames() {
     assert!(sink.is_open());
     assert_eq!(sink.resolution(), (320, 240));
 
-    let frame = VideoFrame::new(320, 240);
+    let frame = VideoFrame::new(320, 240).unwrap();
     sink.write_frame(&frame).unwrap();
     sink.write_frame(&frame).unwrap();
     sink.write_frame(&frame).unwrap();
@@ -20,7 +20,7 @@ fn test_null_sink_counts_frames() {
 #[test]
 fn test_null_sink_max_frames() {
     let mut sink = NullSink::with_max_frames(320, 240, 2);
-    let frame = VideoFrame::new(320, 240);
+    let frame = VideoFrame::new(320, 240).unwrap();
 
     sink.write_frame(&frame).unwrap();
     assert!(sink.is_open());

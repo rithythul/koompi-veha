@@ -33,7 +33,7 @@ enum SkipDirection {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
-    mepl_core::init();
+    mepl_core::init().expect("FFmpeg initialization failed — check FFmpeg libraries are installed");
 
     let args = Args::parse();
 

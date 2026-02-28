@@ -27,14 +27,25 @@ pub struct VideoFrame {
 }
 
 impl VideoFrame {
-    pub fn new(width: u32, height: u32) -> Self {
-        Self {
-            data: vec![0u8; (width * height * 3) as usize],
+    pub fn new(width: u32, height: u32) -> Result<Self, crate::Error> {
+        let size = (width as u64)
+            .checked_mul(height as u64)
+            .and_then(|v| v.checked_mul(3))
+            .ok_or_else(|| crate::Error::InvalidDimensions(
+                format!("{}x{} overflows", width, height)
+            ))?;
+        if size > 128 * 1024 * 1024 {  // 128MB max frame
+            return Err(crate::Error::InvalidDimensions(
+                format!("{}x{} frame too large ({}MB)", width, height, size / 1024 / 1024)
+            ));
+        }
+        Ok(Self {
+            data: vec![0u8; size as usize],
             width,
             height,
             pts: None,
             time_base: (1, 30),
-        }
+        })
     }
 
     /// Convert RGB24 frame data to packed u32 ARGB (0x00RRGGBB) for display backends.
@@ -52,6 +63,9 @@ impl VideoFrame {
 
     /// Timestamp in seconds (if PTS is available).
     pub fn timestamp_secs(&self) -> Option<f64> {
+        if self.time_base.1 == 0 {
+            return None;
+        }
         self.pts.map(|pts| {
             pts as f64 * self.time_base.0 as f64 / self.time_base.1 as f64
         })

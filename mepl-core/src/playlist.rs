@@ -40,16 +40,22 @@ impl Playlist {
     }
 
     pub fn from_json_file(path: &str) -> crate::Result<Self> {
+        let metadata = std::fs::metadata(path)?;
+        if metadata.len() > 10 * 1024 * 1024 {  // 10MB max
+            return Err(crate::Error::Other(
+                format!("Playlist file too large: {} bytes", metadata.len())
+            ));
+        }
         let data = std::fs::read_to_string(path)?;
-        let playlist: Playlist =
-            serde_json::from_str(&data).map_err(|e| crate::Error::Other(e.to_string()))?;
+        let playlist: Playlist = serde_json::from_str(&data)?;
         Ok(playlist)
     }
 
     pub fn to_json_file(&self, path: &str) -> crate::Result<()> {
-        let data =
-            serde_json::to_string_pretty(self).map_err(|e| crate::Error::Other(e.to_string()))?;
-        std::fs::write(path, data)?;
+        let data = serde_json::to_string_pretty(self)?;
+        let tmp_path = format!("{}.tmp", path);
+        std::fs::write(&tmp_path, &data)?;
+        std::fs::rename(&tmp_path, path)?;
         Ok(())
     }
 }

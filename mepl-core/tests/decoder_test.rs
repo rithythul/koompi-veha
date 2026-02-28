@@ -4,7 +4,7 @@ const TEST_VIDEO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/te
 
 #[test]
 fn test_decode_test_video() {
-    mepl_core::init();
+    mepl_core::init().unwrap();
 
     let decoder = Decoder::open_native(TEST_VIDEO).unwrap();
     let (w, h) = decoder.target_resolution();
@@ -25,7 +25,7 @@ fn test_decode_test_video() {
 
 #[test]
 fn test_decode_with_scaling() {
-    mepl_core::init();
+    mepl_core::init().unwrap();
 
     let decoder = Decoder::open(TEST_VIDEO, 160, 120).unwrap();
     let (w, h) = decoder.target_resolution();
@@ -46,7 +46,7 @@ fn test_decode_with_scaling() {
 
 #[test]
 fn test_frame_to_argb() {
-    let mut frame = VideoFrame::new(2, 2);
+    let mut frame = VideoFrame::new(2, 2).unwrap();
     frame.data[0] = 255; // R
     frame.data[1] = 0;   // G
     frame.data[2] = 0;   // B
@@ -57,7 +57,7 @@ fn test_frame_to_argb() {
 
 #[test]
 fn test_timestamp_secs() {
-    let mut frame = VideoFrame::new(1, 1);
+    let mut frame = VideoFrame::new(1, 1).unwrap();
     frame.pts = Some(90);
     frame.time_base = (1, 30);
     let ts = frame.timestamp_secs().unwrap();

@@ -12,6 +12,18 @@ pub enum Error {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("JSON parse error: {0}")]
+    JsonParse(#[from] serde_json::Error),
+
+    #[error("Invalid dimensions: {0}")]
+    InvalidDimensions(String),
+
+    #[error("Image decode failed: {0}")]
+    ImageDecode(String),
+
+    #[error("Timeout: {0}")]
+    Timeout(String),
+
     #[error("{0}")]
     Other(String),
 }

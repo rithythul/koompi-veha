@@ -4,7 +4,7 @@ const TEST_IMAGE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/te
 
 #[test]
 fn test_decode_image() {
-    mepl_core::init();
+    mepl_core::init().unwrap();
 
     let frame = decode_image(TEST_IMAGE, 320, 240).unwrap();
     assert_eq!(frame.width, 320);
@@ -14,7 +14,7 @@ fn test_decode_image() {
 
 #[test]
 fn test_decode_image_with_scaling() {
-    mepl_core::init();
+    mepl_core::init().unwrap();
 
     let frame = decode_image(TEST_IMAGE, 160, 120).unwrap();
     assert_eq!(frame.width, 160);
