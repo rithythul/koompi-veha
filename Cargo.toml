@@ -1,0 +1,18 @@
+[workspace]
+members = ["mepl-core", "mepl-output", "mepl-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/koompi/koompi-mepl"
+
+[workspace.dependencies]
+mepl-core = { path = "mepl-core" }
+mepl-output = { path = "mepl-output" }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

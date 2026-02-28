@@ -1,0 +1,11 @@
+[package]
+name = "mepl-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+mepl-core.workspace = true
+mepl-output.workspace = true
+clap = { version = "4", features = ["derive"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true

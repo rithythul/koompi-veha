@@ -1,0 +1,14 @@
+[package]
+name = "mepl-output"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["window"]
+window = ["dep:minifb"]
+
+[dependencies]
+mepl-core.workspace = true
+minifb = { version = "0.28", optional = true }
+thiserror.workspace = true
+tracing.workspace = true
