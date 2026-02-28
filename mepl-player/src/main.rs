@@ -196,6 +196,18 @@ fn run_player_loop(
             mepl_output::WindowSink::new(&config.title, config.width, config.height)
                 .expect("Failed to create window"),
         ),
+        #[cfg(feature = "framebuffer")]
+        "framebuffer" => Box::new(
+            mepl_output::FramebufferSink::new(0).expect("Failed to open framebuffer"),
+        ),
+        #[cfg(not(feature = "framebuffer"))]
+        "framebuffer" => {
+            tracing::error!(
+                "Framebuffer backend requested but not compiled in. \
+                 Rebuild with --features framebuffer. Falling back to null."
+            );
+            Box::new(mepl_output::NullSink::new(config.width, config.height))
+        }
         "null" => Box::new(mepl_output::NullSink::new(config.width, config.height)),
         other => {
             tracing::error!("Unknown backend: {other}, falling back to null");

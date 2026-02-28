@@ -3,6 +3,10 @@ name = "mepl-player"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+framebuffer = ["mepl-output/framebuffer"]
+
 [dependencies]
 mepl-core.workspace = true
 mepl-output.workspace = true
