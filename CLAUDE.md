@@ -4,6 +4,34 @@
 
 koompi-mepl is a Rust media player system wrapping FFmpeg for LED billboard fleet management. It's a Cargo workspace with 7 crates.
 
+## Architecture
+
+```
+  ┌─────────────────┐     REST/WS      ┌──────────────┐
+  │   Dashboard     │◄────────────────►│   API Server  │
+  │  (mepl-api/     │                  │  (mepl-api)   │
+  │   static/)      │                  │  axum+SQLite  │
+  └─────────────────┘                  └──────┬───────┘
+                                              │ WebSocket
+                                  ┌───────────┼───────────┐
+                                  ▼           ▼           ▼
+                            ┌──────────┐┌──────────┐┌──────────┐
+                            │  Agent   ││  Agent   ││  Agent   │
+                            │(mepl-    ││(mepl-    ││(mepl-    │
+                            │ agent)   ││ agent)   ││ agent)   │
+                            └────┬─────┘└────┬─────┘└────┬─────┘
+                                 │ IPC       │ IPC       │ IPC
+                            ┌────▼─────┐┌────▼─────┐┌────▼─────┐
+                            │  Player  ││  Player  ││  Player  │
+                            │(mepl-    ││(mepl-    ││(mepl-    │
+                            │ player)  ││ player)  ││ player)  │
+                            └────┬─────┘└────┬─────┘└────┬─────┘
+                                 │           │           │
+                            ┌────▼─────┐┌────▼─────┐┌────▼─────┐
+                            │ LED/HDMI ││ LED/HDMI ││ LED/HDMI │
+                            └──────────┘└──────────┘└──────────┘
+```
+
 ## Build & Test
 
 ```bash

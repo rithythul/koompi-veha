@@ -5,11 +5,29 @@ A Rust-based media player system wrapping FFmpeg, designed for managing fleets o
 ## Architecture
 
 ```
-Dashboard (Web UI) <--REST/WS--> API Server <--WebSocket--> Agent 1..N
-                                                              |  (IPC)
-                                                          Player 1..N
-                                                              |
-                                                          LED Board 1..N
+  ┌─────────────────┐     REST/WS      ┌──────────────┐
+  │   Dashboard     │◄────────────────►│   API Server  │
+  │  (mepl-api/     │                  │  (mepl-api)   │
+  │   static/)      │                  │  axum+SQLite  │
+  └─────────────────┘                  └──────┬───────┘
+                                              │ WebSocket
+                                  ┌───────────┼───────────┐
+                                  ▼           ▼           ▼
+                            ┌──────────┐┌──────────┐┌──────────┐
+                            │  Agent   ││  Agent   ││  Agent   │
+                            │(mepl-    ││(mepl-    ││(mepl-    │
+                            │ agent)   ││ agent)   ││ agent)   │
+                            └────┬─────┘└────┬─────┘└────┬─────┘
+                                 │ IPC       │ IPC       │ IPC
+                            ┌────▼─────┐┌────▼─────┐┌────▼─────┐
+                            │  Player  ││  Player  ││  Player  │
+                            │(mepl-    ││(mepl-    ││(mepl-    │
+                            │ player)  ││ player)  ││ player)  │
+                            └────┬─────┘└────┬─────┘└────┬─────┘
+                                 │           │           │
+                            ┌────▼─────┐┌────▼─────┐┌────▼─────┐
+                            │ LED/HDMI ││ LED/HDMI ││ LED/HDMI │
+                            └──────────┘└──────────┘└──────────┘
 ```
 
 The system is a Cargo workspace with 7 crates:
