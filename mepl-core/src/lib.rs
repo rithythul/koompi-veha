@@ -1,6 +1,7 @@
 pub mod decoder;
 pub mod error;
 pub mod frame;
+pub mod image;
 pub mod sink;
 
 pub use decoder::Decoder;
