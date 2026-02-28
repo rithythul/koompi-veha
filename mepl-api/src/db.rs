@@ -6,27 +6,28 @@ use crate::models::*;
 const MIGRATION_SQL: &str = include_str!("../migrations/001_init.sql");
 
 /// Initialize the database pool and run migrations.
-pub async fn init_db(path: &str) -> SqlitePool {
+pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error>> {
     let url = format!("sqlite:{}?mode=rwc", path);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
         .connect(&url)
-        .await
-        .expect("Failed to connect to database");
+        .await?;
+
+    // Enable WAL mode for better concurrent reads
+    sqlx::query("PRAGMA journal_mode=WAL")
+        .execute(&pool)
+        .await?;
 
     // Run migrations: split by statement and execute each
     for statement in MIGRATION_SQL.split(';') {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
-            sqlx::query(trimmed)
-                .execute(&pool)
-                .await
-                .expect("Failed to run migration");
+            sqlx::query(trimmed).execute(&pool).await?;
         }
     }
 
     tracing::info!("Database initialized at {}", path);
-    pool
+    Ok(pool)
 }
 
 // ── Boards ──────────────────────────────────────────────────────────────
@@ -52,8 +53,9 @@ pub async fn create_board(pool: &SqlitePool, input: &CreateBoard) -> Result<Boar
         .bind(&input.group_id)
         .execute(pool)
         .await?;
-    // Safe to unwrap: we just inserted it
-    get_board(pool, &id).await.map(|o| o.unwrap())
+    get_board(pool, &id)
+        .await?
+        .ok_or_else(|| sqlx::Error::RowNotFound)
 }
 
 pub async fn update_board_status(
@@ -116,7 +118,9 @@ pub async fn create_group(pool: &SqlitePool, input: &CreateGroup) -> Result<Grou
         .bind(&input.name)
         .execute(pool)
         .await?;
-    get_group(pool, &id).await.map(|o| o.unwrap())
+    get_group(pool, &id)
+        .await?
+        .ok_or_else(|| sqlx::Error::RowNotFound)
 }
 
 pub async fn delete_group(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
@@ -206,7 +210,9 @@ pub async fn create_playlist(
     .bind(loop_playlist)
     .execute(pool)
     .await?;
-    get_playlist(pool, id).await.map(|o| o.unwrap())
+    get_playlist(pool, id)
+        .await?
+        .ok_or_else(|| sqlx::Error::RowNotFound)
 }
 
 pub async fn update_playlist(

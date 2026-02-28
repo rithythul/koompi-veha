@@ -36,7 +36,13 @@ pub async fn handle_agent_socket(
                 Ok(WsMessage::Register { board_id }) => {
                     tracing::info!("Agent registered: {}", board_id);
                     // Send ack
-                    let ack = serde_json::to_string(&WsMessage::Ack { ok: true }).unwrap();
+                    let ack = match serde_json::to_string(&WsMessage::Ack { ok: true }) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::error!("Failed to serialize ack: {e}");
+                            return;
+                        }
+                    };
                     if ws_tx.send(Message::Text(ack.into())).await.is_err() {
                         return;
                     }
@@ -62,10 +68,13 @@ pub async fn handle_agent_socket(
     // Create a channel for sending commands to this agent.
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(32);
 
-    // Store the sender in the shared map.
+    // Store the sender in the shared map, cleaning up any old connection.
     {
         let mut map = agents.write().await;
-        map.insert(board_id.clone(), cmd_tx);
+        if let Some(old_tx) = map.insert(board_id.clone(), cmd_tx) {
+            drop(old_tx);
+            tracing::warn!("Replaced existing connection for board {}", board_id);
+        }
     }
 
     let bid = board_id.clone();
@@ -116,10 +125,15 @@ pub async fn send_command_to_board(
     board_id: &str,
     command: &PlayerCommand,
 ) -> bool {
-    let msg = serde_json::to_string(&WsMessage::Command {
+    let msg = match serde_json::to_string(&WsMessage::Command {
         command: command.clone(),
-    })
-    .unwrap();
+    }) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to serialize command: {e}");
+            return false;
+        }
+    };
 
     let map = agents.read().await;
     if let Some(tx) = map.get(board_id) {

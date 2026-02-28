@@ -15,6 +15,8 @@ use crate::{AppState, db, models::*, ws};
 /// Build the full application router.
 pub fn create_router(state: AppState) -> Router {
     Router::new()
+        // Health
+        .route("/health", get(health_check))
         // Boards
         .route("/api/boards", get(list_boards).post(create_board))
         .route("/api/boards/{id}", get(get_board))
@@ -44,6 +46,21 @@ pub fn create_router(state: AppState) -> Router {
         .with_state(state)
         // Serve the web dashboard as static files (fallback for non-API routes)
         .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
+}
+
+// ── Health ──────────────────────────────────────────────────────────────
+
+async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+    match sqlx::query("SELECT 1").execute(&state.db).await {
+        Ok(_) => Json(serde_json::json!({
+            "status": "ok",
+            "agents_connected": state.agents.read().await.len(),
+        })).into_response(),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
+            "status": "unhealthy",
+            "error": "database unreachable"
+        }))).into_response(),
+    }
 }
 
 // ── Boards ──────────────────────────────────────────────────────────────
