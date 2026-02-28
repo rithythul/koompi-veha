@@ -29,12 +29,20 @@ pub async fn start_ipc_server(
             let (reader, mut writer) = stream.into_split();
             let mut reader = BufReader::new(reader);
             let mut line = String::new();
+            const MAX_LINE_LEN: usize = 1024 * 1024; // 1MB max command
 
             loop {
                 line.clear();
                 match reader.read_line(&mut line).await {
                     Ok(0) => break, // EOF
                     Ok(_) => {
+                        if line.len() > MAX_LINE_LEN {
+                            let err_response = serde_json::json!({"error": "message too large"});
+                            let _ = writer
+                                .write_all(format!("{err_response}\n").as_bytes())
+                                .await;
+                            break;
+                        }
                         let trimmed = line.trim();
                         if trimmed.is_empty() {
                             continue;

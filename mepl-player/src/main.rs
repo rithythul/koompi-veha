@@ -16,6 +16,14 @@ mod ipc;
 
 use config::PlayerConfig;
 
+/// Lock a mutex, recovering from poisoning by returning the inner data.
+fn lock_or_default<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| {
+        tracing::error!("Mutex poisoned, recovering with previous state");
+        poisoned.into_inner()
+    })
+}
+
 #[derive(Parser)]
 #[command(name = "mepl-player", about = "koompi-mepl headless player daemon")]
 struct Args {
@@ -73,7 +81,7 @@ async fn main() {
                     playlist.name,
                     playlist.len()
                 );
-                *current_playlist.lock().unwrap() = Some(playlist);
+                *lock_or_default(&current_playlist) = Some(playlist);
             }
             Err(e) => error!("Failed to load default playlist: {e}"),
         }
@@ -86,6 +94,15 @@ async fn main() {
         if let Err(e) = ipc::start_ipc_server(&ipc_socket, ipc_cmd_tx).await {
             error!("IPC server error: {e}");
         }
+    });
+
+    // Signal handler — sets shutdown flag and cleans up socket
+    let socket_path_for_cleanup = config.socket_path.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        info!("Shutdown signal received");
+        let _ = std::fs::remove_file(&socket_path_for_cleanup);
+        std::process::exit(0);
     });
 
     // Player loop runs in a blocking thread (FFmpeg is synchronous)
@@ -114,23 +131,23 @@ async fn main() {
     while let Some((cmd, resp_tx)) = cmd_rx.recv().await {
         match cmd {
             PlayerCommand::Play | PlayerCommand::Resume => {
-                *cmd_state.lock().unwrap() = PlayerState::Playing;
+                *lock_or_default(&cmd_state) = PlayerState::Playing;
                 info!("Command: Play/Resume");
             }
             PlayerCommand::Pause => {
-                *cmd_state.lock().unwrap() = PlayerState::Paused;
+                *lock_or_default(&cmd_state) = PlayerState::Paused;
                 info!("Command: Pause");
             }
             PlayerCommand::Stop => {
-                *cmd_state.lock().unwrap() = PlayerState::Stopped;
+                *lock_or_default(&cmd_state) = PlayerState::Stopped;
                 info!("Command: Stop");
             }
             PlayerCommand::Next => {
-                *cmd_skip.lock().unwrap() = Some(SkipDirection::Next);
+                *lock_or_default(&cmd_skip) = Some(SkipDirection::Next);
                 info!("Command: Next");
             }
             PlayerCommand::Previous => {
-                *cmd_skip.lock().unwrap() = Some(SkipDirection::Previous);
+                *lock_or_default(&cmd_skip) = Some(SkipDirection::Previous);
                 info!("Command: Previous");
             }
             PlayerCommand::LoadPlaylist(json) => match serde_json::from_str::<Playlist>(&json) {
@@ -140,16 +157,16 @@ async fn main() {
                         playlist.name,
                         playlist.len()
                     );
-                    *cmd_playlist.lock().unwrap() = Some(playlist);
-                    *cmd_index.lock().unwrap() = 0;
-                    *cmd_state.lock().unwrap() = PlayerState::Playing;
+                    *lock_or_default(&cmd_playlist) = Some(playlist);
+                    *lock_or_default(&cmd_index) = 0;
+                    *lock_or_default(&cmd_state) = PlayerState::Playing;
                 }
                 Err(e) => error!("Failed to parse playlist: {e}"),
             },
             PlayerCommand::GetStatus => {
-                let state = *cmd_state.lock().unwrap();
-                let idx = *cmd_index.lock().unwrap();
-                let pl = cmd_playlist.lock().unwrap();
+                let state = *lock_or_default(&cmd_state);
+                let idx = *lock_or_default(&cmd_index);
+                let pl = lock_or_default(&cmd_playlist);
 
                 let status = PlayerStatus {
                     state: format!("{state:?}"),
@@ -171,7 +188,7 @@ async fn main() {
         // Send ack for non-GetStatus commands
         if let Some(tx) = resp_tx {
             let _ = tx.send(PlayerStatus {
-                state: format!("{:?}", *cmd_state.lock().unwrap()),
+                state: format!("{:?}", *lock_or_default(&cmd_state)),
                 current_item: None,
                 current_index: 0,
                 total_items: 0,
@@ -180,7 +197,21 @@ async fn main() {
         }
     }
 
-    player_handle.join().ok();
+    // Monitor player thread
+    match player_handle.join() {
+        Ok(()) => info!("Player thread exited normally"),
+        Err(panic_payload) => {
+            let msg = if let Some(s) = panic_payload.downcast_ref::<String>() {
+                s.clone()
+            } else if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                s.to_string()
+            } else {
+                "unknown panic".to_string()
+            };
+            error!("Player thread panicked: {msg}");
+            std::process::exit(1);
+        }
+    }
 }
 
 fn run_player_loop(
@@ -192,14 +223,21 @@ fn run_player_loop(
 ) {
     // Create output sink based on config
     let mut sink: Box<dyn OutputSink> = match config.output_backend.as_str() {
-        "window" => Box::new(
-            mepl_output::WindowSink::new(&config.title, config.width, config.height)
-                .expect("Failed to create window"),
-        ),
+        "window" => match mepl_output::WindowSink::new(&config.title, config.width, config.height) {
+            Ok(s) => Box::new(s),
+            Err(e) => {
+                tracing::error!("Failed to create window sink: {e}. Falling back to null.");
+                Box::new(mepl_output::NullSink::new(config.width, config.height))
+            }
+        },
         #[cfg(feature = "framebuffer")]
-        "framebuffer" => Box::new(
-            mepl_output::FramebufferSink::new(0).expect("Failed to open framebuffer"),
-        ),
+        "framebuffer" => match mepl_output::FramebufferSink::new(0) {
+            Ok(s) => Box::new(s),
+            Err(e) => {
+                tracing::error!("Failed to open framebuffer: {e}. Falling back to null.");
+                Box::new(mepl_output::NullSink::new(config.width, config.height))
+            }
+        },
         #[cfg(not(feature = "framebuffer"))]
         "framebuffer" => {
             tracing::error!(
@@ -219,7 +257,7 @@ fn run_player_loop(
 
     loop {
         // Check if we should be playing
-        let current_state = *state.lock().unwrap();
+        let current_state = *lock_or_default(&state);
         if current_state == PlayerState::Stopped {
             std::thread::sleep(std::time::Duration::from_millis(100));
             if !sink.is_open() {
@@ -237,8 +275,8 @@ fn run_player_loop(
         }
 
         // Get current playlist and index
-        let pl = playlist.lock().unwrap().clone();
-        let idx = *current_index.lock().unwrap();
+        let pl = lock_or_default(&playlist).clone();
+        let idx = *lock_or_default(&current_index);
 
         if let Some(ref pl) = pl {
             if pl.is_empty() {
@@ -262,7 +300,7 @@ fn run_player_loop(
             }
 
             // Check for skip signal
-            let skip = skip_signal.lock().unwrap().take();
+            let skip = lock_or_default(&skip_signal).take();
             let next_idx = match skip {
                 Some(SkipDirection::Next) => actual_idx + 1,
                 Some(SkipDirection::Previous) => {
@@ -277,13 +315,13 @@ fn run_player_loop(
 
             if next_idx >= pl.len() {
                 if pl.loop_playlist {
-                    *current_index.lock().unwrap() = 0;
+                    *lock_or_default(&current_index) = 0;
                 } else {
-                    *state.lock().unwrap() = PlayerState::Stopped;
-                    *current_index.lock().unwrap() = 0;
+                    *lock_or_default(&state) = PlayerState::Stopped;
+                    *lock_or_default(&current_index) = 0;
                 }
             } else {
-                *current_index.lock().unwrap() = next_idx;
+                *lock_or_default(&current_index) = next_idx;
             }
         } else {
             std::thread::sleep(std::time::Duration::from_millis(100));
