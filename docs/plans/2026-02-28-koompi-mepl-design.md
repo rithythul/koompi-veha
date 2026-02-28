@@ -1,11 +1,11 @@
-# koompi-mepl Design Document
+# koompi-dooh Design Document
 
 **Date:** 2026-02-28
 **Status:** Approved
 
 ## Overview
 
-koompi-mepl is a Rust-based media player system wrapping FFmpeg, designed for three deployment targets:
+koompi-dooh is a Rust-based media player system wrapping FFmpeg, designed for three deployment targets:
 1. **LED billboard/ad boards** — headless player with remote fleet management
 2. **Desktop** — local testing and preview application
 3. **Web** — management dashboard and browser-based player preview
@@ -13,20 +13,20 @@ koompi-mepl is a Rust-based media player system wrapping FFmpeg, designed for th
 ## Architecture: Layered Cargo Workspace
 
 ```
-koompi-mepl/
-├── mepl-core/        # Library: FFmpeg wrapper, decoding, frame pipeline
-├── mepl-output/      # Pluggable output backends (framebuffer, network, window)
-├── mepl-player/      # Headless player service daemon
-├── mepl-api/         # REST/WebSocket API server for fleet management
-├── mepl-agent/       # Board agent: runs on each LED board
+koompi-dooh/
+├── dooh-core/        # Library: FFmpeg wrapper, decoding, frame pipeline
+├── dooh-output/      # Pluggable output backends (framebuffer, network, window)
+├── dooh-player/      # Headless player service daemon
+├── dooh-api/         # REST/WebSocket API server for fleet management
+├── dooh-agent/       # Board agent: runs on each LED board
 ├── mepl-dashboard/   # Web dashboard frontend
-├── mepl-cli/         # CLI tool for testing and management
-└── mepl-web/         # WASM player for browser preview
+├── dooh-cli/         # CLI tool for testing and management
+└── dooh-web/         # WASM player for browser preview
 ```
 
 ## Components
 
-### 1. mepl-core (Library)
+### 1. dooh-core (Library)
 
 FFmpeg wrapper via `ffmpeg-next` crate with:
 - **Demuxing**: files (MP4/MKV/AVI), streams (RTSP/RTMP/HLS), images (PNG/JPG)
@@ -44,7 +44,7 @@ pub trait OutputSink: Send {
 }
 ```
 
-### 2. mepl-output (Library)
+### 2. dooh-output (Library)
 
 Pluggable output backends, feature-gated:
 - **Framebuffer/DRM**: for LED boards via HDMI (`drm-rs`)
@@ -53,16 +53,16 @@ Pluggable output backends, feature-gated:
 - **WASM/Canvas**: browser rendering via `web-sys`
 - **Null**: testing backend
 
-### 3. mepl-player (Binary)
+### 3. dooh-player (Binary)
 
 Headless daemon for each board:
-- Embeds mepl-core + output backend
+- Embeds dooh-core + output backend
 - Local Unix socket for agent communication
 - Watchdog with auto-restart and fallback playlist
 - Graceful media transitions (fade, cut)
 - Playback event logging
 
-### 4. mepl-agent (Binary)
+### 4. dooh-agent (Binary)
 
 Runs on each LED board alongside the player:
 - Persistent WebSocket connection to central API (auto-reconnect)
@@ -71,7 +71,7 @@ Runs on each LED board alongside the player:
 - Local media cache with sync
 - Offline mode: continues playing on connection loss
 
-### 5. mepl-api (Binary)
+### 5. dooh-api (Binary)
 
 Central fleet management server:
 - REST API (axum) for CRUD: boards, playlists, media, schedules
@@ -90,7 +90,7 @@ Web SPA served by API server:
 - Live board preview (screenshots)
 - Group management
 
-### 7. mepl-cli (Binary)
+### 7. dooh-cli (Binary)
 
 Command-line interface:
 - Local playback: `mepl play video.mp4`
@@ -98,10 +98,10 @@ Command-line interface:
 - Media upload: `mepl upload file.mp4`
 - Diagnostics: `mepl status board-42`
 
-### 8. mepl-web (WASM Library)
+### 8. dooh-web (WASM Library)
 
 Browser player for preview:
-- mepl-core compiled to WASM
+- dooh-core compiled to WASM
 - Canvas API / WebCodecs rendering
 - Limited to browser-decodable formats
 
@@ -133,12 +133,12 @@ Dashboard (Web UI) <--REST/WS--> API Server <--WebSocket--> Agent 1..N
 
 ## Build Phases
 
-1. mepl-core — FFmpeg decoding
-2. mepl-output — window backend
-3. mepl-player — headless daemon
-4. mepl-cli — local testing
-5. mepl-api — REST/WebSocket server
-6. mepl-agent — board agent
+1. dooh-core — FFmpeg decoding
+2. dooh-output — window backend
+3. dooh-player — headless daemon
+4. dooh-cli — local testing
+5. dooh-api — REST/WebSocket server
+6. dooh-agent — board agent
 7. mepl-dashboard — web UI
-8. mepl-output framebuffer — LED output
-9. mepl-web — WASM player
+8. dooh-output framebuffer — LED output
+9. dooh-web — WASM player

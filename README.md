@@ -1,4 +1,4 @@
-# koompi-mepl
+# koompi-dooh
 
 A Rust-based media player system wrapping FFmpeg, designed for managing fleets of LED billboard and digital signage displays with remote control.
 
@@ -7,7 +7,7 @@ A Rust-based media player system wrapping FFmpeg, designed for managing fleets o
 ```
   ┌─────────────────┐     REST/WS      ┌──────────────┐
   │   Dashboard     │◄────────────────►│   API Server  │
-  │  (mepl-api/     │                  │  (mepl-api)   │
+  │  (dooh-api/     │                  │  (dooh-api)   │
   │   static/)      │                  │  axum+SQLite  │
   └─────────────────┘                  └──────┬───────┘
                                               │ WebSocket
@@ -34,13 +34,13 @@ The system is a Cargo workspace with 7 crates:
 
 | Crate | Type | Purpose |
 |-------|------|---------|
-| **mepl-core** | library | FFmpeg decoder, video frames, playlist engine, player logic |
-| **mepl-output** | library | Output backends: window (minifb), framebuffer (/dev/fb0), null |
-| **mepl-cli** | binary | CLI for local playback and remote board management |
-| **mepl-player** | binary | Headless player daemon that runs on each board |
-| **mepl-api** | binary | Central REST/WebSocket API server (axum + SQLite) |
-| **mepl-agent** | binary | Board agent connecting to API and controlling local player |
-| **mepl-web** | cdylib | WASM playlist player for browser-based preview |
+| **dooh-core** | library | FFmpeg decoder, video frames, playlist engine, player logic |
+| **dooh-output** | library | Output backends: window (minifb), framebuffer (/dev/fb0), null |
+| **dooh-cli** | binary | CLI for local playback and remote board management |
+| **dooh-player** | binary | Headless player daemon that runs on each board |
+| **dooh-api** | binary | Central REST/WebSocket API server (axum + SQLite) |
+| **dooh-agent** | binary | Board agent connecting to API and controlling local player |
+| **dooh-web** | cdylib | WASM playlist player for browser-based preview |
 
 ## Prerequisites
 
@@ -76,8 +76,8 @@ cargo build --release
 ### Play a video locally
 
 ```bash
-cargo run -p mepl-cli --release -- play video.mp4
-cargo run -p mepl-cli --release -- play video.mp4 --width 1280 --height 720
+cargo run -p dooh-cli --release -- play video.mp4
+cargo run -p dooh-cli --release -- play video.mp4 --width 1280 --height 720
 ```
 
 ### Play a playlist
@@ -97,7 +97,7 @@ Create a playlist JSON file:
 ```
 
 ```bash
-cargo run -p mepl-cli --release -- play-playlist playlist.json --width 1920 --height 1080
+cargo run -p dooh-cli --release -- play-playlist playlist.json --width 1920 --height 1080
 ```
 
 ## Fleet Deployment
@@ -105,31 +105,31 @@ cargo run -p mepl-cli --release -- play-playlist playlist.json --width 1920 --he
 ### 1. Start the API Server
 
 ```bash
-cargo run -p mepl-api --release -- --bind 0.0.0.0:3000 --database mepl.db --media-dir ./media
+cargo run -p dooh-api --release -- --bind 0.0.0.0:3000 --database mepl.db --media-dir ./media
 ```
 
 The web dashboard is available at `http://your-server:3000`.
 
 ### 2. On Each LED Board
 
-Create `mepl-player.toml`:
+Create `dooh-player.toml`:
 
 ```toml
 output_backend = "framebuffer"  # "window" for testing, "framebuffer" for LED boards
 width = 1920
 height = 1080
-socket_path = "/tmp/mepl-player.sock"
+socket_path = "/tmp/dooh-player.sock"
 default_playlist = "default-ads.json"  # optional
 ```
 
-Create `mepl-agent.toml`:
+Create `dooh-agent.toml`:
 
 ```toml
 board_id = "board-lobby-01"
 board_name = "Lobby Screen"
 api_url = "ws://your-server:3000/ws/agent"
 api_key = ""
-player_socket = "/tmp/mepl-player.sock"
+player_socket = "/tmp/dooh-player.sock"
 report_interval_secs = 10
 cache_dir = "/tmp/mepl-cache"
 ```
@@ -137,8 +137,8 @@ cache_dir = "/tmp/mepl-cache"
 Start both services:
 
 ```bash
-cargo run -p mepl-player --release -- --config mepl-player.toml &
-cargo run -p mepl-agent --release -- --config mepl-agent.toml &
+cargo run -p dooh-player --release -- --config dooh-player.toml &
+cargo run -p dooh-agent --release -- --config dooh-agent.toml &
 ```
 
 For production, use systemd services or similar process management.
@@ -197,7 +197,7 @@ Commands that can be sent to boards via the API or CLI:
 ## Output Backends
 
 - **window** (default) — desktop window via minifb, for testing and preview
-- **framebuffer** — direct `/dev/fb0` writes via mmap, for LED boards connected via HDMI. Supports 16bpp (RGB565), 24bpp (BGR24), and 32bpp (BGRA32). Build with: `cargo build -p mepl-player --features framebuffer`
+- **framebuffer** — direct `/dev/fb0` writes via mmap, for LED boards connected via HDMI. Supports 16bpp (RGB565), 24bpp (BGR24), and 32bpp (BGRA32). Build with: `cargo build -p dooh-player --features framebuffer`
 - **null** — discards frames, for testing and benchmarking
 
 ## WASM Player Preview
@@ -206,8 +206,8 @@ For browser-based playlist preview:
 
 ```bash
 cargo install wasm-pack
-wasm-pack build mepl-web --target web --out-dir pkg
-# Serve mepl-web/demo.html with any HTTP server
+wasm-pack build dooh-web --target web --out-dir pkg
+# Serve dooh-web/demo.html with any HTTP server
 ```
 
 ## Supported Media Formats

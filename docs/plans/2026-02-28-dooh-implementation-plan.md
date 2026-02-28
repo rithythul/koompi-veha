@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Transform koompi-mepl from a media player fleet manager into a DOOH (Digital Out-of-Home) advertising platform with zones, advertisers, campaigns, bookings, proof-of-play, and session authentication.
+**Goal:** Transform koompi-dooh from a media player fleet manager into a DOOH (Digital Out-of-Home) advertising platform with zones, advertisers, campaigns, bookings, proof-of-play, and session authentication.
 
 **Architecture:** Extend the existing axum + SQLite + WebSocket stack. Add 7 new DB tables via migration, session-based auth middleware, DOOH CRUD endpoints, a server-side schedule resolution engine that pushes resolved playlists to agents, and a revamped vanilla JS dashboard with 5 new pages.
 
@@ -15,12 +15,12 @@
 ## Task 1: Database Migration — New Tables + Board Extensions
 
 **Files:**
-- Create: `mepl-api/migrations/003_dooh.sql`
-- Modify: `mepl-api/src/db.rs` (add MIGRATION_003_SQL constant + execution)
+- Create: `dooh-api/migrations/003_dooh.sql`
+- Modify: `dooh-api/src/db.rs` (add MIGRATION_003_SQL constant + execution)
 
 **Step 1: Write migration SQL**
 
-Create `mepl-api/migrations/003_dooh.sql` with:
+Create `dooh-api/migrations/003_dooh.sql` with:
 
 ```sql
 -- Zones (geographic hierarchy)
@@ -169,7 +169,7 @@ INSERT OR IGNORE INTO advertisers (id, name, is_house) VALUES ('house', 'House (
 
 **Step 2: Update db.rs to run migration 003**
 
-In `mepl-api/src/db.rs`, after the `MIGRATION_002_SQL` execution block:
+In `dooh-api/src/db.rs`, after the `MIGRATION_002_SQL` execution block:
 
 ```rust
 const MIGRATION_003_SQL: &str = include_str!("../migrations/003_dooh.sql");
@@ -196,7 +196,7 @@ if zones_exists.0 == 0 {
 
 **Step 3: Build and verify**
 
-Run: `cargo build -p mepl-api`
+Run: `cargo build -p dooh-api`
 Expected: compiles clean
 
 Run: `cargo test --workspace`
@@ -205,7 +205,7 @@ Expected: all 11 tests pass (migration runs in test DB)
 **Step 4: Commit**
 
 ```bash
-git add mepl-api/migrations/003_dooh.sql mepl-api/src/db.rs
+git add dooh-api/migrations/003_dooh.sql dooh-api/src/db.rs
 git commit -m "feat(api): add DOOH database schema — zones, advertisers, campaigns, bookings, play_logs, users"
 ```
 
@@ -214,22 +214,22 @@ git commit -m "feat(api): add DOOH database schema — zones, advertisers, campa
 ## Task 2: Session Authentication + Roles
 
 **Files:**
-- Modify: `mepl-api/Cargo.toml` (add argon2, rand dependencies)
-- Create: `mepl-api/src/auth.rs` (auth module: hashing, sessions, middleware)
-- Modify: `mepl-api/src/models.rs` (add User, Session, LoginRequest, AuthResponse models)
-- Modify: `mepl-api/src/db.rs` (add user/session CRUD, default admin seeding)
-- Modify: `mepl-api/src/routes.rs` (add auth routes, apply middleware)
-- Modify: `mepl-api/src/main.rs` (add `mod auth`, seed default admin after DB init)
+- Modify: `dooh-api/Cargo.toml` (add argon2, rand dependencies)
+- Create: `dooh-api/src/auth.rs` (auth module: hashing, sessions, middleware)
+- Modify: `dooh-api/src/models.rs` (add User, Session, LoginRequest, AuthResponse models)
+- Modify: `dooh-api/src/db.rs` (add user/session CRUD, default admin seeding)
+- Modify: `dooh-api/src/routes.rs` (add auth routes, apply middleware)
+- Modify: `dooh-api/src/main.rs` (add `mod auth`, seed default admin after DB init)
 
 **Step 1: Add dependencies**
 
-In `mepl-api/Cargo.toml`, add:
+In `dooh-api/Cargo.toml`, add:
 ```toml
 argon2 = "0.5"
 rand = "0.8"
 ```
 
-**Step 2: Create auth module (`mepl-api/src/auth.rs`)**
+**Step 2: Create auth module (`dooh-api/src/auth.rs`)**
 
 ```rust
 use axum::{
@@ -300,7 +300,7 @@ pub async fn require_auth(
             cookies.split(';')
                 .find_map(|c| {
                     let c = c.trim();
-                    c.strip_prefix("mepl_session=")
+                    c.strip_prefix("dooh_session=")
                 })
         });
 
@@ -325,7 +325,7 @@ Note: `generate_session_id()` should use `uuid::Uuid::new_v4().to_string()` inst
 
 **Step 3: Add models**
 
-In `mepl-api/src/models.rs`, add:
+In `dooh-api/src/models.rs`, add:
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -369,7 +369,7 @@ pub struct Session {
 
 **Step 4: Add user/session DB functions**
 
-In `mepl-api/src/db.rs`, add a new section:
+In `dooh-api/src/db.rs`, add a new section:
 
 ```rust
 // ── Auth ────────────────────────────────────────────────────────────
@@ -420,7 +420,7 @@ pub async fn cleanup_expired_sessions(pool: &SqlitePool) -> Result<u64, sqlx::Er
 
 **Step 5: Add auth routes**
 
-In `mepl-api/src/routes.rs`, add login/logout/me handlers:
+In `dooh-api/src/routes.rs`, add login/logout/me handlers:
 
 ```rust
 async fn login(
@@ -450,7 +450,7 @@ async fn login(
     }
 
     let cookie = format!(
-        "mepl_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
+        "dooh_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
         session_id
     );
 
@@ -466,7 +466,7 @@ async fn logout(headers: HeaderMap, State(state): State<AppState>) -> impl IntoR
     if let Some(token) = extract_session_token(&headers) {
         let _ = db::delete_session(&state.db, token).await;
     }
-    let cookie = "mepl_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
+    let cookie = "dooh_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
     let mut response = StatusCode::NO_CONTENT.into_response();
     response.headers_mut().insert(
         axum::http::header::SET_COOKIE,
@@ -487,7 +487,7 @@ async fn auth_me(headers: HeaderMap, State(state): State<AppState>) -> impl Into
 fn extract_session_token(headers: &HeaderMap) -> Option<&str> {
     headers.get("cookie")
         .and_then(|v| v.to_str().ok())
-        .and_then(|cookies| cookies.split(';').find_map(|c| c.trim().strip_prefix("mepl_session=")))
+        .and_then(|cookies| cookies.split(';').find_map(|c| c.trim().strip_prefix("dooh_session=")))
 }
 ```
 
@@ -507,7 +507,7 @@ use axum::middleware;
 
 **Step 6: Seed default admin on first boot**
 
-In `mepl-api/src/main.rs`, after `db::init_db()`:
+In `dooh-api/src/main.rs`, after `db::init_db()`:
 
 ```rust
 // Seed default admin if no users exist
@@ -539,7 +539,7 @@ match db::user_count(&db).await {
 Run: `cargo build --workspace && cargo test --workspace`
 
 ```bash
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api): add session authentication with admin/operator/viewer roles"
 ```
 
@@ -548,9 +548,9 @@ git commit -m "feat(api): add session authentication with admin/operator/viewer 
 ## Task 3: Zone CRUD Endpoints
 
 **Files:**
-- Modify: `mepl-api/src/models.rs` (Zone, CreateZone models)
-- Modify: `mepl-api/src/db.rs` (zone CRUD functions)
-- Modify: `mepl-api/src/routes.rs` (zone handlers + route registration)
+- Modify: `dooh-api/src/models.rs` (Zone, CreateZone models)
+- Modify: `dooh-api/src/db.rs` (zone CRUD functions)
+- Modify: `dooh-api/src/routes.rs` (zone handlers + route registration)
 
 **Step 1: Add models**
 
@@ -640,7 +640,7 @@ Add handlers following the existing pattern (State, Path/Json extractors, error 
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api): add zone CRUD endpoints for geographic hierarchy"
 ```
 
@@ -649,9 +649,9 @@ git commit -m "feat(api): add zone CRUD endpoints for geographic hierarchy"
 ## Task 4: Advertiser CRUD Endpoints
 
 **Files:**
-- Modify: `mepl-api/src/models.rs`
-- Modify: `mepl-api/src/db.rs`
-- Modify: `mepl-api/src/routes.rs`
+- Modify: `dooh-api/src/models.rs`
+- Modify: `dooh-api/src/db.rs`
+- Modify: `dooh-api/src/routes.rs`
 
 **Step 1: Add models**
 
@@ -697,7 +697,7 @@ FROM advertisers ORDER BY created_at DESC LIMIT ? OFFSET ?
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api): add advertiser CRUD endpoints"
 ```
 
@@ -706,9 +706,9 @@ git commit -m "feat(api): add advertiser CRUD endpoints"
 ## Task 5: Campaign + Creative CRUD Endpoints
 
 **Files:**
-- Modify: `mepl-api/src/models.rs`
-- Modify: `mepl-api/src/db.rs`
-- Modify: `mepl-api/src/routes.rs`
+- Modify: `dooh-api/src/models.rs`
+- Modify: `dooh-api/src/db.rs`
+- Modify: `dooh-api/src/routes.rs`
 
 **Step 1: Add models**
 
@@ -804,7 +804,7 @@ Campaign status transitions: `activate_campaign`, `pause_campaign` (simple SET s
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api): add campaign and creative CRUD endpoints"
 ```
 
@@ -813,9 +813,9 @@ git commit -m "feat(api): add campaign and creative CRUD endpoints"
 ## Task 6: Booking CRUD Endpoints
 
 **Files:**
-- Modify: `mepl-api/src/models.rs`
-- Modify: `mepl-api/src/db.rs`
-- Modify: `mepl-api/src/routes.rs`
+- Modify: `dooh-api/src/models.rs`
+- Modify: `dooh-api/src/db.rs`
+- Modify: `dooh-api/src/routes.rs`
 
 **Step 1: Add models**
 
@@ -888,7 +888,7 @@ Paginated `list_bookings` with filters. `create_booking` with input validation (
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api): add booking CRUD endpoints for timeslot management"
 ```
 
@@ -897,10 +897,10 @@ git commit -m "feat(api): add booking CRUD endpoints for timeslot management"
 ## Task 7: Schedule Resolution Engine
 
 **Files:**
-- Create: `mepl-api/src/resolver.rs` (schedule resolution logic)
-- Modify: `mepl-api/src/db.rs` (add query functions for resolution)
-- Modify: `mepl-api/src/routes.rs` (add resolved-schedule preview endpoint)
-- Modify: `mepl-api/src/main.rs` (add `mod resolver`)
+- Create: `dooh-api/src/resolver.rs` (schedule resolution logic)
+- Modify: `dooh-api/src/db.rs` (add query functions for resolution)
+- Modify: `dooh-api/src/routes.rs` (add resolved-schedule preview endpoint)
+- Modify: `dooh-api/src/main.rs` (add `mod resolver`)
 
 **Step 1: Add DB query functions for resolution**
 
@@ -956,12 +956,12 @@ pub async fn get_approved_creatives(pool: &SqlitePool, campaign_id: &str) -> Res
 }
 ```
 
-**Step 2: Create resolver module (`mepl-api/src/resolver.rs`)**
+**Step 2: Create resolver module (`dooh-api/src/resolver.rs`)**
 
 ```rust
 use crate::db;
 use crate::models::*;
-use mepl_core::{MediaItem, Playlist};
+use dooh_core::{MediaItem, Playlist};
 use sqlx::SqlitePool;
 
 /// Resolve what a board should play right now.
@@ -1082,7 +1082,7 @@ Handler calls `resolver::resolve_for_board()` and returns the playlist JSON.
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api): add schedule resolution engine for DOOH bookings"
 ```
 
@@ -1091,13 +1091,13 @@ git commit -m "feat(api): add schedule resolution engine for DOOH bookings"
 ## Task 8: WebSocket Protocol Extensions
 
 **Files:**
-- Modify: `mepl-api/src/ws.rs` (add ScheduleUpdate, PlayReport message types)
-- Modify: `mepl-agent/src/ws_client.rs` (add matching message types, handle ScheduleUpdate)
-- Modify: `mepl-core/src/command.rs` (extend PlayerStatus with optional DOOH fields)
+- Modify: `dooh-api/src/ws.rs` (add ScheduleUpdate, PlayReport message types)
+- Modify: `dooh-agent/src/ws_client.rs` (add matching message types, handle ScheduleUpdate)
+- Modify: `dooh-core/src/command.rs` (extend PlayerStatus with optional DOOH fields)
 
 **Step 1: Extend WsMessage on both sides**
 
-Add to the WsMessage enum in both `mepl-api/src/ws.rs` and `mepl-agent/src/ws_client.rs`:
+Add to the WsMessage enum in both `dooh-api/src/ws.rs` and `dooh-agent/src/ws_client.rs`:
 
 ```rust
 ScheduleUpdate {
@@ -1117,7 +1117,7 @@ PlayReport {
 
 **Step 2: Extend PlayerStatus**
 
-In `mepl-core/src/command.rs`, add optional fields (backward compatible via serde defaults):
+In `dooh-core/src/command.rs`, add optional fields (backward compatible via serde defaults):
 
 ```rust
 pub struct PlayerStatus {
@@ -1137,7 +1137,7 @@ pub struct PlayerStatus {
 
 **Step 3: Handle ScheduleUpdate in agent**
 
-In `mepl-agent/src/ws_client.rs`, in `handle_server_message()`:
+In `dooh-agent/src/ws_client.rs`, in `handle_server_message()`:
 
 ```rust
 Ok(WsMessage::ScheduleUpdate { playlist, active_booking_ids }) => {
@@ -1154,7 +1154,7 @@ Ok(WsMessage::ScheduleUpdate { playlist, active_booking_ids }) => {
 
 **Step 4: Handle PlayReport on server**
 
-In `mepl-api/src/ws.rs`, in the message receive loop:
+In `dooh-api/src/ws.rs`, in the message receive loop:
 
 ```rust
 Ok(WsMessage::PlayReport { booking_id, creative_id, media_id, started_at, ended_at, duration_secs, status }) => {
@@ -1194,7 +1194,7 @@ if let Ok(Some(board)) = crate::db::get_board(&db, &board_id).await {
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/ mepl-agent/ mepl-core/
+git add dooh-api/ dooh-agent/ dooh-core/
 git commit -m "feat(api,agent): add ScheduleUpdate and PlayReport WebSocket messages"
 ```
 
@@ -1203,9 +1203,9 @@ git commit -m "feat(api,agent): add ScheduleUpdate and PlayReport WebSocket mess
 ## Task 9: Play Log Ingestion + Query Endpoints
 
 **Files:**
-- Modify: `mepl-api/src/db.rs` (insert_play_log, list_play_logs, play_log_summary)
-- Modify: `mepl-api/src/models.rs` (PlayLog, PlayLogFilter, PlayLogSummary)
-- Modify: `mepl-api/src/routes.rs` (play log list + summary endpoints)
+- Modify: `dooh-api/src/db.rs` (insert_play_log, list_play_logs, play_log_summary)
+- Modify: `dooh-api/src/models.rs` (PlayLog, PlayLogFilter, PlayLogSummary)
+- Modify: `dooh-api/src/routes.rs` (play log list + summary endpoints)
 
 **Step 1: Add models**
 
@@ -1294,7 +1294,7 @@ pub async fn play_log_summary(pool: &SqlitePool, start_date: &str, end_date: &st
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api): add play log ingestion and query endpoints"
 ```
 
@@ -1303,9 +1303,9 @@ git commit -m "feat(api): add play log ingestion and query endpoints"
 ## Task 10: Dashboard — Fix Pagination + New Pages
 
 **Files:**
-- Modify: `mepl-api/static/app.js` (fix existing pages for paginated responses, add new page functions)
-- Modify: `mepl-api/static/index.html` (add new page sections + sidebar nav items)
-- Modify: `mepl-api/static/style.css` (any new styles needed)
+- Modify: `dooh-api/static/app.js` (fix existing pages for paginated responses, add new page functions)
+- Modify: `dooh-api/static/index.html` (add new page sections + sidebar nav items)
+- Modify: `dooh-api/static/style.css` (any new styles needed)
 
 **Step 1: Fix paginated response handling**
 
@@ -1353,7 +1353,7 @@ For each new page, implement `loadXxx()` and rendering functions following the e
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/static/
+git add dooh-api/static/
 git commit -m "feat(dashboard): add login, overview, zones, advertisers, campaigns, bookings, play logs pages"
 ```
 
@@ -1362,14 +1362,14 @@ git commit -m "feat(dashboard): add login, overview, zones, advertisers, campaig
 ## Task 11: Enhanced Boards Page + Board Update Endpoint
 
 **Files:**
-- Modify: `mepl-api/src/models.rs` (UpdateBoard model with DOOH fields)
-- Modify: `mepl-api/src/db.rs` (update_board function, extend Board struct query columns)
-- Modify: `mepl-api/src/routes.rs` (PUT /api/boards/{id} handler, extend list_boards filters)
-- Modify: `mepl-api/static/app.js` (enhanced board table + detail view)
+- Modify: `dooh-api/src/models.rs` (UpdateBoard model with DOOH fields)
+- Modify: `dooh-api/src/db.rs` (update_board function, extend Board struct query columns)
+- Modify: `dooh-api/src/routes.rs` (PUT /api/boards/{id} handler, extend list_boards filters)
+- Modify: `dooh-api/static/app.js` (enhanced board table + detail view)
 
 **Step 1: Extend Board struct**
 
-In `mepl-api/src/models.rs`, add the new columns to the Board struct:
+In `dooh-api/src/models.rs`, add the new columns to the Board struct:
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -1445,7 +1445,7 @@ Update the boards table to show Zone, Sell Mode, Resolution columns. Update the 
 
 ```bash
 cargo build --workspace && cargo test --workspace
-git add mepl-api/
+git add dooh-api/
 git commit -m "feat(api,dashboard): enhance boards with DOOH fields, location, sell mode"
 ```
 
@@ -1458,7 +1458,7 @@ After all 11 tasks:
 ```bash
 cargo build --workspace
 cargo test --workspace
-cargo check -p mepl-web --target wasm32-unknown-unknown
+cargo check -p dooh-web --target wasm32-unknown-unknown
 ```
 
 All must pass. Then review the full commit log and verify the dashboard works end-to-end by starting the server and testing in a browser.

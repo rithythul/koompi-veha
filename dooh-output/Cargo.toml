@@ -1,0 +1,16 @@
+[package]
+name = "dooh-output"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["window"]
+window = ["dep:minifb"]
+framebuffer = ["dep:memmap2"]
+
+[dependencies]
+dooh-core.workspace = true
+minifb = { version = "0.28", optional = true }
+memmap2 = { version = "0.9", optional = true }
+thiserror.workspace = true
+tracing.workspace = true

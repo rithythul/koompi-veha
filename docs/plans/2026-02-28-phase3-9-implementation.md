@@ -1,22 +1,22 @@
-# koompi-mepl Phases 3-9 Implementation Plan
+# koompi-dooh Phases 3-9 Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build the full fleet management system: headless player daemon, REST/WebSocket API, board agent with remote control, web dashboard, framebuffer output for LED boards, and WASM player preview.
 
-**Architecture:** Extend the existing Cargo workspace with 5 new crates (mepl-player, mepl-api, mepl-agent, mepl-dashboard, mepl-web) plus a framebuffer output backend in mepl-output.
+**Architecture:** Extend the existing Cargo workspace with 5 new crates (dooh-player, dooh-api, dooh-agent, mepl-dashboard, dooh-web) plus a framebuffer output backend in dooh-output.
 
 **Tech Stack:** Rust, tokio, axum, sqlx (SQLite), serde, tungstenite/tokio-tungstenite, drm-rs, wasm-bindgen
 
 ---
 
-## Phase 3: Headless Player Daemon (mepl-player)
+## Phase 3: Headless Player Daemon (dooh-player)
 
-### Task 1: Create mepl-player crate with config and daemon skeleton
+### Task 1: Create dooh-player crate with config and daemon skeleton
 
 Create a headless player service that runs on each LED board.
 
-**New crate: mepl-player/**
+**New crate: dooh-player/**
 - Config file (TOML): output backend, resolution, default playlist, API endpoint
 - Daemon main loop: load config → init output → load playlist → play
 - Signal handling: SIGTERM for graceful shutdown, SIGHUP for config reload
@@ -31,7 +31,7 @@ Add a Unix socket or channel-based command interface so the agent can control th
 
 ### Task 3: Player state machine improvements
 
-Enhance mepl-core Player to support:
+Enhance dooh-core Player to support:
 - Pause/Resume (currently only Playing/Stopped)
 - Skip to next/previous item
 - Thread-safe state via Arc<Mutex<>> or channels
@@ -39,7 +39,7 @@ Enhance mepl-core Player to support:
 
 ---
 
-## Phase 4: CLI Enhancements (mepl-cli)
+## Phase 4: CLI Enhancements (dooh-cli)
 
 ### Task 4: Board management CLI commands
 
@@ -52,9 +52,9 @@ Add subcommands:
 
 ---
 
-## Phase 5: API Server (mepl-api)
+## Phase 5: API Server (dooh-api)
 
-### Task 5: Create mepl-api crate with axum skeleton
+### Task 5: Create dooh-api crate with axum skeleton
 
 - axum HTTP server with CORS
 - SQLite database via sqlx with migrations
@@ -96,11 +96,11 @@ CRUD endpoints:
 
 ---
 
-## Phase 6: Board Agent (mepl-agent)
+## Phase 6: Board Agent (dooh-agent)
 
-### Task 10: Create mepl-agent crate
+### Task 10: Create dooh-agent crate
 
-Agent binary that runs on each LED board alongside mepl-player:
+Agent binary that runs on each LED board alongside dooh-player:
 - Config: board_id, API server URL, API key, player socket path
 - WebSocket client connecting to API server (auto-reconnect)
 - Forwards commands from API to local player via Unix socket
@@ -142,7 +142,7 @@ Minimal but functional web dashboard:
 
 ### Task 15: DRM/Framebuffer output backend
 
-Add to mepl-output:
+Add to dooh-output:
 - Feature-gated `framebuffer` backend
 - Direct framebuffer write via /dev/fb0 (simpler, works everywhere)
 - Fallback from DRM to framebuffer
@@ -154,8 +154,8 @@ Add to mepl-output:
 
 ### Task 16: WASM player crate
 
-mepl-web crate:
-- Compile subset of mepl-core to WASM
+dooh-web crate:
+- Compile subset of dooh-core to WASM
 - Canvas-based rendering via web-sys
 - JavaScript API for control
 - Note: Full FFmpeg in WASM is complex; start with a simplified version that plays pre-decoded frames or uses browser-native video decoding

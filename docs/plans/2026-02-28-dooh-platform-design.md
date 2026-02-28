@@ -1,4 +1,4 @@
-# DOOH Platform Design — koompi-mepl
+# DOOH Platform Design — koompi-dooh
 
 **Date:** 2026-02-28
 **Status:** Proposed
@@ -6,7 +6,7 @@
 
 ## 1. Problem Statement
 
-koompi-mepl is currently a media player fleet management system. It can push playlists to boards and control playback remotely. However, it lacks the data model and workflows needed for a Digital Out-of-Home (DOOH) advertising business where:
+koompi-dooh is currently a media player fleet management system. It can push playlists to boards and control playback remotely. However, it lacks the data model and workflows needed for a Digital Out-of-Home (DOOH) advertising business where:
 
 - Different billboards show different ads from different advertisers
 - Timeslots are sold per-board or per-zone to advertisers
@@ -319,7 +319,7 @@ The agent caches the last resolved playlist in a local file. If the WebSocket co
 
 ### 6.1 New Message Types
 
-Add to `WsMessage` enum in both mepl-api and mepl-agent:
+Add to `WsMessage` enum in both dooh-api and dooh-agent:
 
 ```rust
 pub enum WsMessage {

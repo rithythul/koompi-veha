@@ -1,10 +1,10 @@
-# koompi-mepl Phase 1 & 2 Implementation Plan
+# koompi-dooh Phase 1 & 2 Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build the core FFmpeg media player library and a windowed output backend that can decode and display video files, images, and streams in a desktop window.
 
-**Architecture:** Cargo workspace with two crates — `mepl-core` (library wrapping FFmpeg for decoding, frame pipeline, and playlist) and `mepl-output` (pluggable output backends, starting with a `minifb` window backend). A `mepl-cli` binary ties them together for testing.
+**Architecture:** Cargo workspace with two crates — `dooh-core` (library wrapping FFmpeg for decoding, frame pipeline, and playlist) and `dooh-output` (pluggable output backends, starting with a `minifb` window backend). A `dooh-cli` binary ties them together for testing.
 
 **Tech Stack:** Rust, ffmpeg-next (FFmpeg bindings), minifb (window framebuffer), clap (CLI), thiserror (errors), tracing (logging)
 
@@ -14,41 +14,41 @@
 
 **Files:**
 - Create: `Cargo.toml` (workspace root)
-- Create: `mepl-core/Cargo.toml`
-- Create: `mepl-core/src/lib.rs`
-- Create: `mepl-output/Cargo.toml`
-- Create: `mepl-output/src/lib.rs`
-- Create: `mepl-cli/Cargo.toml`
-- Create: `mepl-cli/src/main.rs`
+- Create: `dooh-core/Cargo.toml`
+- Create: `dooh-core/src/lib.rs`
+- Create: `dooh-output/Cargo.toml`
+- Create: `dooh-output/src/lib.rs`
+- Create: `dooh-cli/Cargo.toml`
+- Create: `dooh-cli/src/main.rs`
 - Create: `.gitignore`
 
 **Step 1: Create workspace root Cargo.toml**
 
 ```toml
 [workspace]
-members = ["mepl-core", "mepl-output", "mepl-cli"]
+members = ["dooh-core", "dooh-output", "dooh-cli"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/koompi/koompi-mepl"
+repository = "https://github.com/koompi/koompi-dooh"
 
 [workspace.dependencies]
-mepl-core = { path = "mepl-core" }
-mepl-output = { path = "mepl-output" }
+dooh-core = { path = "dooh-core" }
+dooh-output = { path = "dooh-output" }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 ```
 
-**Step 2: Create mepl-core crate**
+**Step 2: Create dooh-core crate**
 
-`mepl-core/Cargo.toml`:
+`dooh-core/Cargo.toml`:
 ```toml
 [package]
-name = "mepl-core"
+name = "dooh-core"
 version.workspace = true
 edition.workspace = true
 
@@ -58,7 +58,7 @@ thiserror.workspace = true
 tracing.workspace = true
 ```
 
-`mepl-core/src/lib.rs`:
+`dooh-core/src/lib.rs`:
 ```rust
 pub mod error;
 
@@ -66,7 +66,7 @@ pub use error::Error;
 pub type Result<T> = std::result::Result<T, Error>;
 ```
 
-Create `mepl-core/src/error.rs`:
+Create `dooh-core/src/error.rs`:
 ```rust
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -87,12 +87,12 @@ pub enum Error {
 }
 ```
 
-**Step 3: Create mepl-output crate**
+**Step 3: Create dooh-output crate**
 
-`mepl-output/Cargo.toml`:
+`dooh-output/Cargo.toml`:
 ```toml
 [package]
-name = "mepl-output"
+name = "dooh-output"
 version.workspace = true
 edition.workspace = true
 
@@ -101,39 +101,39 @@ default = ["window"]
 window = ["dep:minifb"]
 
 [dependencies]
-mepl-core.workspace = true
+dooh-core.workspace = true
 minifb = { version = "0.28", optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 ```
 
-`mepl-output/src/lib.rs`:
+`dooh-output/src/lib.rs`:
 ```rust
 #[cfg(feature = "window")]
 pub mod window;
 ```
 
-**Step 4: Create mepl-cli crate**
+**Step 4: Create dooh-cli crate**
 
-`mepl-cli/Cargo.toml`:
+`dooh-cli/Cargo.toml`:
 ```toml
 [package]
-name = "mepl-cli"
+name = "dooh-cli"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
-mepl-core.workspace = true
-mepl-output.workspace = true
+dooh-core.workspace = true
+dooh-output.workspace = true
 clap = { version = "4", features = ["derive"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ```
 
-`mepl-cli/src/main.rs`:
+`dooh-cli/src/main.rs`:
 ```rust
 fn main() {
-    println!("koompi-mepl");
+    println!("koompi-dooh");
 }
 ```
 
@@ -152,7 +152,7 @@ Expected: Compiles successfully with no errors.
 
 ```bash
 git add -A
-git commit -m "feat: initialize cargo workspace with mepl-core, mepl-output, mepl-cli"
+git commit -m "feat: initialize cargo workspace with dooh-core, dooh-output, dooh-cli"
 ```
 
 ---
@@ -160,13 +160,13 @@ git commit -m "feat: initialize cargo workspace with mepl-core, mepl-output, mep
 ### Task 2: Video Frame Type and OutputSink Trait
 
 **Files:**
-- Create: `mepl-core/src/frame.rs`
-- Create: `mepl-core/src/sink.rs`
-- Modify: `mepl-core/src/lib.rs`
+- Create: `dooh-core/src/frame.rs`
+- Create: `dooh-core/src/sink.rs`
+- Modify: `dooh-core/src/lib.rs`
 
 **Step 1: Create the VideoFrame type**
 
-`mepl-core/src/frame.rs`:
+`dooh-core/src/frame.rs`:
 ```rust
 /// A decoded video frame in RGB24 format (3 bytes per pixel).
 #[derive(Clone)]
@@ -213,7 +213,7 @@ impl VideoFrame {
 
 **Step 2: Create the OutputSink trait**
 
-`mepl-core/src/sink.rs`:
+`dooh-core/src/sink.rs`:
 ```rust
 use crate::frame::VideoFrame;
 use crate::Result;
@@ -233,7 +233,7 @@ pub trait OutputSink: Send {
 
 **Step 3: Update lib.rs exports**
 
-`mepl-core/src/lib.rs`:
+`dooh-core/src/lib.rs`:
 ```rust
 pub mod error;
 pub mod frame;
@@ -259,7 +259,7 @@ Expected: Compiles successfully.
 **Step 5: Commit**
 
 ```bash
-git add mepl-core/src/frame.rs mepl-core/src/sink.rs mepl-core/src/lib.rs
+git add dooh-core/src/frame.rs dooh-core/src/sink.rs dooh-core/src/lib.rs
 git commit -m "feat(core): add VideoFrame type and OutputSink trait"
 ```
 
@@ -268,13 +268,13 @@ git commit -m "feat(core): add VideoFrame type and OutputSink trait"
 ### Task 3: Video Decoder
 
 **Files:**
-- Create: `mepl-core/src/decoder.rs`
-- Modify: `mepl-core/src/lib.rs`
-- Modify: `mepl-core/src/error.rs`
+- Create: `dooh-core/src/decoder.rs`
+- Modify: `dooh-core/src/lib.rs`
+- Modify: `dooh-core/src/error.rs`
 
 **Step 1: Implement the video decoder**
 
-`mepl-core/src/decoder.rs`:
+`dooh-core/src/decoder.rs`:
 ```rust
 use std::path::Path;
 
@@ -460,7 +460,7 @@ impl Decoder {
 
 **Step 2: Update lib.rs**
 
-Add to `mepl-core/src/lib.rs`:
+Add to `dooh-core/src/lib.rs`:
 ```rust
 pub mod decoder;
 pub use decoder::Decoder;
@@ -474,26 +474,26 @@ Expected: Compiles successfully.
 **Step 4: Commit**
 
 ```bash
-git add mepl-core/src/decoder.rs mepl-core/src/lib.rs
+git add dooh-core/src/decoder.rs dooh-core/src/lib.rs
 git commit -m "feat(core): add video decoder with FFmpeg demuxing and RGB24 scaling"
 ```
 
 ---
 
-### Task 4: Window Output Backend (mepl-output)
+### Task 4: Window Output Backend (dooh-output)
 
 **Files:**
-- Create: `mepl-output/src/window.rs`
-- Modify: `mepl-output/src/lib.rs`
+- Create: `dooh-output/src/window.rs`
+- Modify: `dooh-output/src/lib.rs`
 
 **Step 1: Implement window backend**
 
-`mepl-output/src/window.rs`:
+`dooh-output/src/window.rs`:
 ```rust
-use mepl_core::frame::VideoFrame;
-use mepl_core::sink::OutputSink;
-use mepl_core::Result;
-use mepl_core::error::Error;
+use dooh_core::frame::VideoFrame;
+use dooh_core::sink::OutputSink;
+use dooh_core::Result;
+use dooh_core::error::Error;
 use minifb::{Window, WindowOptions};
 
 /// A windowed output backend using minifb.
@@ -557,7 +557,7 @@ impl OutputSink for WindowSink {
 
 **Step 2: Update lib.rs**
 
-`mepl-output/src/lib.rs`:
+`dooh-output/src/lib.rs`:
 ```rust
 #[cfg(feature = "window")]
 pub mod window;
@@ -574,7 +574,7 @@ Expected: Compiles successfully.
 **Step 4: Commit**
 
 ```bash
-git add mepl-output/src/window.rs mepl-output/src/lib.rs
+git add dooh-output/src/window.rs dooh-output/src/lib.rs
 git commit -m "feat(output): add minifb window output backend"
 ```
 
@@ -583,11 +583,11 @@ git commit -m "feat(output): add minifb window output backend"
 ### Task 5: CLI Player — Play a Video File in a Window
 
 **Files:**
-- Modify: `mepl-cli/src/main.rs`
+- Modify: `dooh-cli/src/main.rs`
 
 **Step 1: Implement the CLI with play command**
 
-`mepl-cli/src/main.rs`:
+`dooh-cli/src/main.rs`:
 ```rust
 use std::thread;
 use std::time::{Duration, Instant};
@@ -595,11 +595,11 @@ use std::time::{Duration, Instant};
 use clap::{Parser, Subcommand};
 use tracing_subscriber;
 
-use mepl_core::{Decoder, OutputSink};
+use dooh_core::{Decoder, OutputSink};
 use mepl_output::WindowSink;
 
 #[derive(Parser)]
-#[command(name = "mepl", about = "koompi-mepl media player")]
+#[command(name = "mepl", about = "koompi-dooh media player")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -625,7 +625,7 @@ enum Commands {
 fn main() {
     tracing_subscriber::fmt::init();
 
-    mepl_core::init();
+    dooh_core::init();
 
     let cli = Cli::parse();
 
@@ -643,7 +643,7 @@ fn main() {
     }
 }
 
-fn play(source: &str, width: Option<u32>, height: Option<u32>) -> mepl_core::Result<()> {
+fn play(source: &str, width: Option<u32>, height: Option<u32>) -> dooh_core::Result<()> {
     // Open decoder — use target resolution if specified, otherwise native.
     let mut decoder = match (width, height) {
         (Some(w), Some(h)) => Decoder::open(source, w, h)?,
@@ -694,7 +694,7 @@ Expected: A window opens and plays the video at its native resolution with frame
 **Step 3: Commit**
 
 ```bash
-git add mepl-cli/src/main.rs
+git add dooh-cli/src/main.rs
 git commit -m "feat(cli): add play command with windowed video playback"
 ```
 
@@ -703,14 +703,14 @@ git commit -m "feat(cli): add play command with windowed video playback"
 ### Task 6: Image Decoding Support
 
 **Files:**
-- Create: `mepl-core/src/image.rs`
-- Modify: `mepl-core/src/lib.rs`
-- Modify: `mepl-core/src/error.rs`
-- Modify: `mepl-cli/src/main.rs`
+- Create: `dooh-core/src/image.rs`
+- Modify: `dooh-core/src/lib.rs`
+- Modify: `dooh-core/src/error.rs`
+- Modify: `dooh-cli/src/main.rs`
 
 **Step 1: Implement image decoder**
 
-`mepl-core/src/image.rs`:
+`dooh-core/src/image.rs`:
 ```rust
 use std::path::Path;
 
@@ -793,16 +793,16 @@ pub fn is_image_path(path: &str) -> bool {
 
 **Step 2: Export from lib.rs**
 
-Add to `mepl-core/src/lib.rs`:
+Add to `dooh-core/src/lib.rs`:
 ```rust
 pub mod image;
 ```
 
 **Step 3: Update CLI to handle images**
 
-Add image display logic to the `play` function in `mepl-cli/src/main.rs` — detect image files and display them for a fixed duration (5 seconds default) or until window close:
+Add image display logic to the `play` function in `dooh-cli/src/main.rs` — detect image files and display them for a fixed duration (5 seconds default) or until window close:
 
-In `mepl-cli/src/main.rs`, update the `play` function to check `mepl_core::image::is_image_path()` and call `mepl_core::image::decode_image()` for image files, displaying the frame in the window until it's closed or 5 seconds elapse.
+In `dooh-cli/src/main.rs`, update the `play` function to check `dooh_core::image::is_image_path()` and call `dooh_core::image::decode_image()` for image files, displaying the frame in the window until it's closed or 5 seconds elapse.
 
 **Step 4: Build and test**
 
@@ -815,7 +815,7 @@ Expected: Window opens showing the image for 5 seconds then closes.
 **Step 5: Commit**
 
 ```bash
-git add mepl-core/src/image.rs mepl-core/src/lib.rs mepl-cli/src/main.rs
+git add dooh-core/src/image.rs dooh-core/src/lib.rs dooh-cli/src/main.rs
 git commit -m "feat(core): add image decoding support"
 ```
 
@@ -824,12 +824,12 @@ git commit -m "feat(core): add image decoding support"
 ### Task 7: Playlist Data Model
 
 **Files:**
-- Create: `mepl-core/src/playlist.rs`
-- Modify: `mepl-core/src/lib.rs`
+- Create: `dooh-core/src/playlist.rs`
+- Modify: `dooh-core/src/lib.rs`
 
 **Step 1: Implement playlist types**
 
-`mepl-core/src/playlist.rs`:
+`dooh-core/src/playlist.rs`:
 ```rust
 use std::time::Duration;
 
@@ -905,7 +905,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ```
 
-Add to `mepl-core/Cargo.toml` `[dependencies]`:
+Add to `dooh-core/Cargo.toml` `[dependencies]`:
 ```toml
 serde.workspace = true
 serde_json.workspace = true
@@ -913,7 +913,7 @@ serde_json.workspace = true
 
 **Step 3: Export from lib.rs**
 
-Add to `mepl-core/src/lib.rs`:
+Add to `dooh-core/src/lib.rs`:
 ```rust
 pub mod playlist;
 pub use playlist::{Playlist, MediaItem};
@@ -927,7 +927,7 @@ Expected: Compiles.
 **Step 5: Commit**
 
 ```bash
-git add mepl-core/src/playlist.rs mepl-core/src/lib.rs mepl-core/Cargo.toml Cargo.toml
+git add dooh-core/src/playlist.rs dooh-core/src/lib.rs dooh-core/Cargo.toml Cargo.toml
 git commit -m "feat(core): add playlist data model with JSON serialization"
 ```
 
@@ -936,13 +936,13 @@ git commit -m "feat(core): add playlist data model with JSON serialization"
 ### Task 8: Playlist Player — Play Multiple Items in Sequence
 
 **Files:**
-- Create: `mepl-core/src/player.rs`
-- Modify: `mepl-core/src/lib.rs`
-- Modify: `mepl-cli/src/main.rs`
+- Create: `dooh-core/src/player.rs`
+- Modify: `dooh-core/src/lib.rs`
+- Modify: `dooh-cli/src/main.rs`
 
 **Step 1: Implement the Player**
 
-`mepl-core/src/player.rs`:
+`dooh-core/src/player.rs`:
 ```rust
 use std::thread;
 use std::time::{Duration, Instant};
@@ -1085,7 +1085,7 @@ impl Player {
 
 **Step 2: Export from lib.rs**
 
-Add to `mepl-core/src/lib.rs`:
+Add to `dooh-core/src/lib.rs`:
 ```rust
 pub mod player;
 pub use player::{Player, PlayerState};
@@ -1093,7 +1093,7 @@ pub use player::{Player, PlayerState};
 
 **Step 3: Update CLI to support playlists**
 
-Add a `Playlist` subcommand to `mepl-cli/src/main.rs`:
+Add a `Playlist` subcommand to `dooh-cli/src/main.rs`:
 ```rust
 /// Play a JSON playlist file.
 PlayPlaylist {
@@ -1131,7 +1131,7 @@ Expected: Plays video, then shows image for 3 seconds, then exits.
 **Step 5: Commit**
 
 ```bash
-git add mepl-core/src/player.rs mepl-core/src/lib.rs mepl-cli/src/main.rs
+git add dooh-core/src/player.rs dooh-core/src/lib.rs dooh-cli/src/main.rs
 git commit -m "feat(core): add Player with playlist and sequential playback"
 ```
 
@@ -1140,17 +1140,17 @@ git commit -m "feat(core): add Player with playlist and sequential playback"
 ### Task 9: Null Sink for Testing
 
 **Files:**
-- Create: `mepl-output/src/null.rs`
-- Modify: `mepl-output/src/lib.rs`
-- Create: `mepl-core/tests/decoder_test.rs`
+- Create: `dooh-output/src/null.rs`
+- Modify: `dooh-output/src/lib.rs`
+- Create: `dooh-core/tests/decoder_test.rs`
 
 **Step 1: Implement null sink**
 
-`mepl-output/src/null.rs`:
+`dooh-output/src/null.rs`:
 ```rust
-use mepl_core::frame::VideoFrame;
-use mepl_core::sink::OutputSink;
-use mepl_core::Result;
+use dooh_core::frame::VideoFrame;
+use dooh_core::sink::OutputSink;
+use dooh_core::Result;
 
 /// A null output sink that discards frames. Useful for testing and benchmarking.
 pub struct NullSink {
@@ -1211,7 +1211,7 @@ impl OutputSink for NullSink {
 
 **Step 2: Export null sink**
 
-Add to `mepl-output/src/lib.rs`:
+Add to `dooh-output/src/lib.rs`:
 ```rust
 pub mod null;
 pub use null::NullSink;
@@ -1225,7 +1225,7 @@ Expected: Compiles.
 **Step 4: Commit**
 
 ```bash
-git add mepl-output/src/null.rs mepl-output/src/lib.rs
+git add dooh-output/src/null.rs dooh-output/src/lib.rs
 git commit -m "feat(output): add NullSink for testing and benchmarking"
 ```
 
@@ -1234,7 +1234,7 @@ git commit -m "feat(output): add NullSink for testing and benchmarking"
 ### Task 10: Integration Test with Test Media
 
 **Files:**
-- Create: `tests/integration_test.rs` (workspace-level test) OR `mepl-cli/tests/playback_test.rs`
+- Create: `tests/integration_test.rs` (workspace-level test) OR `dooh-cli/tests/playback_test.rs`
 
 **Step 1: Create a test video using FFmpeg CLI**
 
@@ -1247,13 +1247,13 @@ This creates a 2-second 320x240 test video.
 
 **Step 2: Write integration test**
 
-Create `mepl-core/tests/decoder_test.rs`:
+Create `dooh-core/tests/decoder_test.rs`:
 ```rust
-use mepl_core::{Decoder, OutputSink};
+use dooh_core::{Decoder, OutputSink};
 
 #[test]
 fn test_decode_test_video() {
-    mepl_core::init();
+    dooh_core::init();
 
     let decoder = Decoder::open_native("tests/fixtures/test.mp4").unwrap();
     let (w, h) = decoder.target_resolution();
@@ -1283,7 +1283,7 @@ Expected: All tests pass.
 
 ```bash
 mkdir -p tests/fixtures
-git add tests/ mepl-core/tests/
+git add tests/ dooh-core/tests/
 git commit -m "test: add integration test for video decoding"
 ```
 
@@ -1294,14 +1294,14 @@ git commit -m "test: add integration test for video decoding"
 | Task | Component | What it builds |
 |------|-----------|---------------|
 | 1 | Workspace | Cargo workspace structure with 3 crates |
-| 2 | mepl-core | VideoFrame type + OutputSink trait |
-| 3 | mepl-core | Video decoder (FFmpeg demux + decode + scale) |
-| 4 | mepl-output | Window output backend (minifb) |
-| 5 | mepl-cli | CLI `play` command — video in window |
-| 6 | mepl-core | Image decoding support |
-| 7 | mepl-core | Playlist data model (JSON) |
-| 8 | mepl-core | Player with sequential playlist playback |
-| 9 | mepl-output | Null sink for testing |
+| 2 | dooh-core | VideoFrame type + OutputSink trait |
+| 3 | dooh-core | Video decoder (FFmpeg demux + decode + scale) |
+| 4 | dooh-output | Window output backend (minifb) |
+| 5 | dooh-cli | CLI `play` command — video in window |
+| 6 | dooh-core | Image decoding support |
+| 7 | dooh-core | Playlist data model (JSON) |
+| 8 | dooh-core | Player with sequential playlist playback |
+| 9 | dooh-output | Null sink for testing |
 | 10 | tests | Integration test with test video |
 
 After completing these 10 tasks, you will have a working media player that can:

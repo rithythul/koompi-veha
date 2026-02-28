@@ -1,0 +1,11 @@
+[package]
+name = "dooh-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ffmpeg-next = "8"
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
