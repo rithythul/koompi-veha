@@ -1,6 +1,9 @@
 use mepl_core::command::{PlayerCommand, PlayerStatus};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
+use tokio::time::{timeout, Duration};
+
+const IPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Send a command to the local mepl-player daemon via its Unix socket.
 /// Returns the raw JSON response string.
@@ -8,15 +11,25 @@ pub async fn send_command(
     socket_path: &str,
     command: &PlayerCommand,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    let stream = UnixStream::connect(socket_path).await?;
+    let stream = timeout(IPC_TIMEOUT, UnixStream::connect(socket_path))
+        .await
+        .map_err(|_| "IPC connect timeout")?
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+
     let (reader, mut writer) = stream.into_split();
 
     let cmd_json = serde_json::to_string(command)?;
-    writer.write_all(format!("{cmd_json}\n").as_bytes()).await?;
+    timeout(IPC_TIMEOUT, writer.write_all(format!("{cmd_json}\n").as_bytes()))
+        .await
+        .map_err(|_| "IPC write timeout")?
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
 
     let mut reader = BufReader::new(reader);
     let mut response = String::new();
-    reader.read_line(&mut response).await?;
+    timeout(IPC_TIMEOUT, reader.read_line(&mut response))
+        .await
+        .map_err(|_| "IPC read timeout")?
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
 
     Ok(response.trim().to_string())
 }

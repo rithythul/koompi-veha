@@ -33,6 +33,8 @@ pub async fn run(config: AgentConfig) {
         match connect_and_run(&config).await {
             Ok(()) => {
                 info!("WebSocket session ended cleanly");
+                // Reset backoff on clean session (connection was successful)
+                backoff_secs = 1;
             }
             Err(e) => {
                 error!("WebSocket error: {e}");
