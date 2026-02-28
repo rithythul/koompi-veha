@@ -26,4 +26,10 @@ pub struct PlayerStatus {
     pub current_index: usize,
     pub total_items: usize,
     pub playlist_name: Option<String>,
+    #[serde(default)]
+    pub active_booking_id: Option<String>,
+    #[serde(default)]
+    pub active_creative_id: Option<String>,
+    #[serde(default)]
+    pub uptime_secs: Option<u64>,
 }

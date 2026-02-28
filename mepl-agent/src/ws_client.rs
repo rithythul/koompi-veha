@@ -21,6 +21,20 @@ pub enum WsMessage {
         api_key: Option<String>,
     },
     Ack { ok: bool },
+    ScheduleUpdate {
+        playlist: String,
+        #[serde(default)]
+        active_booking_ids: Vec<String>,
+    },
+    PlayReport {
+        booking_id: Option<String>,
+        creative_id: Option<String>,
+        media_id: Option<String>,
+        started_at: String,
+        ended_at: String,
+        duration_secs: u32,
+        status: String,
+    },
 }
 
 /// Run the WebSocket client loop with automatic reconnection.
@@ -143,6 +157,9 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
                             current_index: 0,
                             total_items: 0,
                             playlist_name: None,
+                            active_booking_id: None,
+                            active_creative_id: None,
+                            uptime_secs: None,
                         };
                         let msg = serde_json::to_string(&WsMessage::Status { status })?;
                         let _ = ws_tx.send(Message::Text(msg.into())).await;
@@ -163,6 +180,15 @@ async fn handle_server_message(text: &str, socket_path: &str) {
             match player_client::send_command(socket_path, &command).await {
                 Ok(resp) => debug!("Player response: {resp}"),
                 Err(e) => error!("Failed to forward command to player: {e}"),
+            }
+        }
+        Ok(WsMessage::ScheduleUpdate { playlist, active_booking_ids }) => {
+            info!("Received schedule update with {} active bookings", active_booking_ids.len());
+            // Forward as LoadPlaylist command to the local player
+            let command = PlayerCommand::LoadPlaylist(playlist);
+            match player_client::send_command(socket_path, &command).await {
+                Ok(resp) => debug!("Player loaded schedule: {resp}"),
+                Err(e) => error!("Failed to load schedule: {e}"),
             }
         }
         Ok(other) => {

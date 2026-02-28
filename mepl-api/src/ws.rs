@@ -23,6 +23,19 @@ pub enum WsMessage {
         api_key: Option<String>,
     },
     Ack { ok: bool },
+    ScheduleUpdate {
+        playlist: String,
+        active_booking_ids: Vec<String>,
+    },
+    PlayReport {
+        booking_id: Option<String>,
+        creative_id: Option<String>,
+        media_id: Option<String>,
+        started_at: String,
+        ended_at: String,
+        duration_secs: u32,
+        status: String,
+    },
 }
 
 /// Handle an incoming agent WebSocket connection.
@@ -87,6 +100,9 @@ pub async fn handle_agent_socket(
     // Create a channel for sending commands to this agent.
     let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(32);
 
+    // Clone cmd_tx before moving into map
+    let push_tx = cmd_tx.clone();
+
     // Store the sender in the shared map, cleaning up any old connection.
     {
         let mut map = agents.write().await;
@@ -109,6 +125,27 @@ pub async fn handle_agent_socket(
         }
     });
 
+    // Push resolved schedule to newly connected agent
+    let push_db = db.clone();
+    let push_bid = board_id.clone();
+    tokio::spawn(async move {
+        match crate::resolver::resolve_for_board(&push_db, &push_bid).await {
+            Ok(resolved) => {
+                if !resolved.items.is_empty() {
+                    let playlist_json = serde_json::to_string(&resolved).unwrap_or_default();
+                    let msg = serde_json::to_string(&WsMessage::ScheduleUpdate {
+                        playlist: playlist_json,
+                        active_booking_ids: resolved.active_booking_ids,
+                    }).unwrap_or_default();
+                    if push_tx.send(msg).await.is_err() {
+                        tracing::warn!("Failed to push schedule to {push_bid}");
+                    }
+                }
+            }
+            Err(e) => tracing::error!("Failed to resolve schedule for {push_bid}: {e}"),
+        }
+    });
+
     // Read incoming messages from the agent (status updates).
     while let Some(Ok(msg)) = ws_rx.next().await {
         if let Message::Text(text) = msg {
@@ -119,6 +156,25 @@ pub async fn handle_agent_socket(
                     let state_str = &status.state;
                     let _ =
                         crate::db::update_board_status(&db_clone, &bid, state_str).await;
+                }
+                Ok(WsMessage::PlayReport {
+                    booking_id, creative_id, media_id,
+                    started_at, ended_at, duration_secs, status,
+                }) => {
+                    tracing::debug!("Play report from {}: booking={:?}", bid, booking_id);
+                    if let Err(e) = crate::db::insert_play_log(
+                        &db_clone,
+                        &bid,
+                        booking_id.as_deref(),
+                        creative_id.as_deref(),
+                        media_id.as_deref(),
+                        &started_at,
+                        Some(&ended_at),
+                        Some(duration_secs as i32),
+                        &status,
+                    ).await {
+                        tracing::error!("Failed to insert play log from {}: {e}", bid);
+                    }
                 }
                 _ => {
                     tracing::debug!("Received message from {}: {}", bid, text);

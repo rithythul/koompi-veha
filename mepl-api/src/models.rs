@@ -312,3 +312,46 @@ pub struct BookingFilter {
     #[serde(default = "default_per_page")]
     pub per_page: u32,
 }
+
+// ── Play Logs ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct PlayLog {
+    pub id: String,
+    pub board_id: String,
+    pub booking_id: Option<String>,
+    pub creative_id: Option<String>,
+    pub media_id: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub duration_secs: Option<i32>,
+    pub status: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PlayLogFilter {
+    pub board_id: Option<String>,
+    pub booking_id: Option<String>,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_per_page")]
+    pub per_page: u32,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct PlayLogSummary {
+    pub date: String,
+    pub board_id: String,
+    pub booking_id: Option<String>,
+    pub play_count: i64,
+    pub total_duration_secs: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PlayLogSummaryFilter {
+    pub start_date: String,
+    pub end_date: String,
+}

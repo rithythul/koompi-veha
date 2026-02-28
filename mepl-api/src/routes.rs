@@ -79,6 +79,12 @@ pub fn create_router(state: AppState) -> Router {
             "/api/bookings/{id}",
             get(get_booking_handler).put(update_booking_handler).delete(delete_booking_handler),
         )
+        // Play Logs
+        .route("/api/play-logs", get(list_play_logs_handler))
+        .route("/api/play-logs/summary", get(play_log_summary_handler))
+        .route("/api/bookings/{id}/play-logs", get(booking_play_logs_handler))
+        // Schedule Resolution
+        .route("/api/boards/{id}/resolved-schedule", get(get_resolved_schedule_handler))
         // WebSocket
         .route("/ws/agent", get(ws_agent_handler))
         // Auth middleware — applied to all routes above
@@ -1078,6 +1084,73 @@ async fn delete_booking_handler(
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("delete_booking: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Play Logs ──────────────────────────────────────────────────────────
+
+async fn list_play_logs_handler(
+    State(state): State<AppState>,
+    Query(filter): Query<PlayLogFilter>,
+) -> impl IntoResponse {
+    match db::list_play_logs(&state.db, &filter).await {
+        Ok((logs, total)) => Json(PaginatedResponse {
+            data: logs,
+            total,
+            page: filter.page,
+            per_page: filter.per_page,
+        }).into_response(),
+        Err(e) => {
+            tracing::error!("list_play_logs: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn play_log_summary_handler(
+    State(state): State<AppState>,
+    Query(filter): Query<PlayLogSummaryFilter>,
+) -> impl IntoResponse {
+    match db::play_log_summary(&state.db, &filter.start_date, &filter.end_date).await {
+        Ok(summary) => Json(summary).into_response(),
+        Err(e) => {
+            tracing::error!("play_log_summary: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn booking_play_logs_handler(
+    State(state): State<AppState>,
+    Path(booking_id): Path<String>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    match db::list_play_logs_by_booking(&state.db, &booking_id, params.page, params.per_page).await {
+        Ok((logs, total)) => Json(PaginatedResponse {
+            data: logs,
+            total,
+            page: params.page,
+            per_page: params.per_page,
+        }).into_response(),
+        Err(e) => {
+            tracing::error!("booking_play_logs: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Schedule Resolution ────────────────────────────────────────────────
+
+async fn get_resolved_schedule_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match crate::resolver::resolve_for_board(&state.db, &id).await {
+        Ok(resolved) => Json(resolved).into_response(),
+        Err(e) => {
+            tracing::error!("resolve_schedule: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

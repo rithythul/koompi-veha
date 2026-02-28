@@ -7,6 +7,7 @@ use axum::http::Method;
 mod auth;
 mod db;
 mod models;
+mod resolver;
 mod routes;
 mod ws;
 

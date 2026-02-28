@@ -891,3 +891,209 @@ pub async fn delete_booking(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::E
         .await?;
     Ok(result.rows_affected() > 0)
 }
+
+// ── Resolution helpers ─────────────────────────────────────────────────
+
+/// Get zone ancestry (zone_id + all parent IDs up the tree).
+pub async fn get_zone_ancestry(pool: &SqlitePool, zone_id: &str) -> Result<Vec<String>, sqlx::Error> {
+    let mut ids = vec![zone_id.to_string()];
+    let mut current = zone_id.to_string();
+    loop {
+        let zone: Option<Zone> = get_zone(pool, &current).await?;
+        match zone.and_then(|z| z.parent_id) {
+            Some(parent) => {
+                ids.push(parent.clone());
+                current = parent;
+            }
+            None => break,
+        }
+    }
+    Ok(ids)
+}
+
+/// Get approved creatives for a campaign.
+pub async fn get_approved_creatives(pool: &SqlitePool, campaign_id: &str) -> Result<Vec<Creative>, sqlx::Error> {
+    sqlx::query_as::<_, Creative>(
+        "SELECT id, campaign_id, media_id, name, duration_secs, status, created_at \
+         FROM creatives WHERE campaign_id = ? AND status = 'approved' ORDER BY created_at"
+    )
+    .bind(campaign_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Get active bookings for a board (direct + zone ancestry + group).
+/// Filters by date, time, and day_of_week. Sorted by priority DESC, created_at ASC.
+pub async fn get_active_bookings_for_board(
+    pool: &SqlitePool,
+    board_id: &str,
+    zone_ids: &[String],
+    group_id: Option<&str>,
+    today: &str,
+    current_time: &str,
+) -> Result<Vec<Booking>, sqlx::Error> {
+    // Build zone IN clause
+    let zone_placeholders = if zone_ids.is_empty() {
+        "''".to_string() // won't match anything
+    } else {
+        zone_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",")
+    };
+
+    let group_clause = if group_id.is_some() {
+        "OR (target_type = 'group' AND target_id = ?)"
+    } else {
+        ""
+    };
+
+    let sql = format!(
+        "SELECT id, campaign_id, booking_type, target_type, target_id, start_date, end_date, \
+         start_time, end_time, days_of_week, slot_duration_secs, slots_per_loop, priority, \
+         status, notes, created_at, updated_at \
+         FROM bookings WHERE \
+         status IN ('confirmed', 'active') \
+         AND start_date <= ? AND end_date >= ? \
+         AND (start_time IS NULL OR start_time <= ?) \
+         AND (end_time IS NULL OR end_time >= ?) \
+         AND ( \
+           (target_type = 'board' AND target_id = ?) \
+           OR (target_type = 'zone' AND target_id IN ({zone_placeholders})) \
+           {group_clause} \
+         ) \
+         ORDER BY priority DESC, created_at ASC"
+    );
+
+    let mut query = sqlx::query_as::<_, Booking>(&sql);
+    // Bind date/time params
+    query = query.bind(today).bind(today).bind(current_time).bind(current_time);
+    // Bind board_id
+    query = query.bind(board_id);
+    // Bind zone_ids
+    for zid in zone_ids {
+        query = query.bind(zid);
+    }
+    // Bind group_id if present
+    if let Some(gid) = group_id {
+        query = query.bind(gid);
+    }
+
+    let mut bookings = query.fetch_all(pool).await?;
+
+    // Filter by day_of_week in Rust (SQLite doesn't have good array support)
+    let now = chrono::Utc::now();
+    let day_of_week = now.format("%w").to_string(); // 0=Sun, 6=Sat
+    bookings.retain(|b| {
+        b.days_of_week.split(',').any(|d| d.trim() == day_of_week)
+    });
+
+    Ok(bookings)
+}
+
+// ── Play Logs ──────────────────────────────────────────────────────────
+
+pub async fn insert_play_log(
+    pool: &SqlitePool,
+    board_id: &str,
+    booking_id: Option<&str>,
+    creative_id: Option<&str>,
+    media_id: Option<&str>,
+    started_at: &str,
+    ended_at: Option<&str>,
+    duration_secs: Option<i32>,
+    status: &str,
+) -> Result<(), sqlx::Error> {
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO play_logs (id, board_id, booking_id, creative_id, media_id, started_at, ended_at, duration_secs, status) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&id).bind(board_id).bind(booking_id).bind(creative_id).bind(media_id)
+    .bind(started_at).bind(ended_at).bind(duration_secs).bind(status)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_play_logs(pool: &SqlitePool, filter: &PlayLogFilter) -> Result<(Vec<PlayLog>, i64), sqlx::Error> {
+    let offset = ((filter.page.max(1) - 1) * filter.per_page) as i64;
+    let limit = filter.per_page.min(200) as i64;
+
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM play_logs WHERE \
+         (? IS NULL OR board_id = ?) AND \
+         (? IS NULL OR booking_id = ?) AND \
+         (? IS NULL OR date(started_at) >= ?) AND \
+         (? IS NULL OR date(started_at) <= ?)"
+    )
+    .bind(&filter.board_id).bind(&filter.board_id)
+    .bind(&filter.booking_id).bind(&filter.booking_id)
+    .bind(&filter.start_date).bind(&filter.start_date)
+    .bind(&filter.end_date).bind(&filter.end_date)
+    .fetch_one(pool)
+    .await?;
+
+    let items = sqlx::query_as::<_, PlayLog>(
+        "SELECT id, board_id, booking_id, creative_id, media_id, started_at, ended_at, \
+         duration_secs, status, created_at FROM play_logs WHERE \
+         (? IS NULL OR board_id = ?) AND \
+         (? IS NULL OR booking_id = ?) AND \
+         (? IS NULL OR date(started_at) >= ?) AND \
+         (? IS NULL OR date(started_at) <= ?) \
+         ORDER BY started_at DESC LIMIT ? OFFSET ?"
+    )
+    .bind(&filter.board_id).bind(&filter.board_id)
+    .bind(&filter.booking_id).bind(&filter.booking_id)
+    .bind(&filter.start_date).bind(&filter.start_date)
+    .bind(&filter.end_date).bind(&filter.end_date)
+    .bind(limit).bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok((items, total.0))
+}
+
+pub async fn play_log_summary(
+    pool: &SqlitePool,
+    start_date: &str,
+    end_date: &str,
+) -> Result<Vec<PlayLogSummary>, sqlx::Error> {
+    sqlx::query_as::<_, PlayLogSummary>(
+        "SELECT date(started_at) as date, board_id, booking_id, \
+         COUNT(*) as play_count, COALESCE(SUM(duration_secs), 0) as total_duration_secs \
+         FROM play_logs WHERE date(started_at) BETWEEN ? AND ? \
+         GROUP BY date(started_at), board_id, booking_id \
+         ORDER BY date DESC, play_count DESC"
+    )
+    .bind(start_date)
+    .bind(end_date)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn list_play_logs_by_booking(
+    pool: &SqlitePool,
+    booking_id: &str,
+    page: u32,
+    per_page: u32,
+) -> Result<(Vec<PlayLog>, i64), sqlx::Error> {
+    let total: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM play_logs WHERE booking_id = ?"
+    )
+    .bind(booking_id)
+    .fetch_one(pool)
+    .await?;
+
+    let offset = ((page.max(1) - 1) * per_page) as i64;
+    let limit = per_page.min(200) as i64;
+
+    let items = sqlx::query_as::<_, PlayLog>(
+        "SELECT id, board_id, booking_id, creative_id, media_id, started_at, ended_at, \
+         duration_secs, status, created_at FROM play_logs WHERE booking_id = ? \
+         ORDER BY started_at DESC LIMIT ? OFFSET ?"
+    )
+    .bind(booking_id)
+    .bind(limit).bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok((items, total.0))
+}
