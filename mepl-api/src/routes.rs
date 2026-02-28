@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::{delete, get, post},
 };
+use tower_http::services::ServeDir;
 use uuid::Uuid;
 
 use crate::{AppState, db, models::*, ws};
@@ -41,6 +42,8 @@ pub fn create_router(state: AppState) -> Router {
         // WebSocket
         .route("/ws/agent", get(ws_agent_handler))
         .with_state(state)
+        // Serve the web dashboard as static files (fallback for non-API routes)
+        .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
 }
 
 // ── Boards ──────────────────────────────────────────────────────────────
