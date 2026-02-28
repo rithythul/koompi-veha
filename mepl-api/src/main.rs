@@ -14,6 +14,7 @@ pub struct AppState {
     pub db: SqlitePool,
     pub agents: ws::AgentConnections,
     pub media_dir: String,
+    pub api_key: String,
 }
 
 #[derive(Parser)]
@@ -34,6 +35,10 @@ struct Args {
     /// Allowed CORS origins (comma-separated, e.g. "http://localhost:3000,https://dashboard.example.com")
     #[arg(long, default_value = "")]
     cors_origins: String,
+
+    /// API key for agent authentication (required in production)
+    #[arg(long, env = "MEPL_API_KEY", default_value = "")]
+    api_key: String,
 }
 
 #[tokio::main]
@@ -60,6 +65,7 @@ async fn main() {
         db: db.clone(),
         agents: ws::AgentConnections::default(),
         media_dir: args.media_dir,
+        api_key: args.api_key,
     };
 
     // Configure CORS

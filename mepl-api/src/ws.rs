@@ -17,7 +17,11 @@ pub type AgentConnections = Arc<RwLock<HashMap<String, mpsc::Sender<String>>>>;
 pub enum WsMessage {
     Command { command: PlayerCommand },
     Status { status: PlayerStatus },
-    Register { board_id: String },
+    Register {
+        board_id: String,
+        #[serde(default)]
+        api_key: Option<String>,
+    },
     Ack { ok: bool },
 }
 
@@ -26,6 +30,7 @@ pub async fn handle_agent_socket(
     socket: WebSocket,
     agents: AgentConnections,
     db: sqlx::SqlitePool,
+    api_key: String,
 ) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -33,7 +38,21 @@ pub async fn handle_agent_socket(
     let board_id = match ws_rx.next().await {
         Some(Ok(Message::Text(text))) => {
             match serde_json::from_str::<WsMessage>(&text) {
-                Ok(WsMessage::Register { board_id }) => {
+                Ok(WsMessage::Register { board_id, api_key: agent_key }) => {
+                    // Validate API key if server has one configured
+                    if !api_key.is_empty() {
+                        let valid = agent_key
+                            .as_deref()
+                            .map(|k| k == api_key)
+                            .unwrap_or(false);
+                        if !valid {
+                            tracing::warn!("Agent {} rejected: invalid API key", board_id);
+                            let nak = serde_json::to_string(&WsMessage::Ack { ok: false })
+                                .unwrap_or_default();
+                            let _ = ws_tx.send(Message::Text(nak.into())).await;
+                            return;
+                        }
+                    }
                     tracing::info!("Agent registered: {}", board_id);
                     // Send ack
                     let ack = match serde_json::to_string(&WsMessage::Ack { ok: true }) {

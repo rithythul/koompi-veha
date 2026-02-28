@@ -520,5 +520,5 @@ async fn ws_agent_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| ws::handle_agent_socket(socket, state.agents, state.db))
+    ws.on_upgrade(move |socket| ws::handle_agent_socket(socket, state.agents, state.db, state.api_key))
 }

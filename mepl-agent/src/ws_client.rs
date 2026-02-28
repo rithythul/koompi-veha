@@ -15,7 +15,11 @@ use crate::player_client;
 pub enum WsMessage {
     Command { command: PlayerCommand },
     Status { status: PlayerStatus },
-    Register { board_id: String },
+    Register {
+        board_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        api_key: Option<String>,
+    },
     Ack { ok: bool },
 }
 
@@ -58,6 +62,11 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
     // --- Register ---
     let register_msg = serde_json::to_string(&WsMessage::Register {
         board_id: config.board_id.clone(),
+        api_key: if config.api_key.is_empty() {
+            None
+        } else {
+            Some(config.api_key.clone())
+        },
     })?;
     ws_tx.send(Message::Text(register_msg.into())).await?;
     debug!("Sent Register for board_id={}", config.board_id);
