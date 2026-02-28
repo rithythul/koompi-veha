@@ -1,5 +1,5 @@
 [workspace]
-members = ["mepl-core", "mepl-output", "mepl-cli", "mepl-player", "mepl-api"]
+members = ["mepl-core", "mepl-output", "mepl-cli", "mepl-player", "mepl-api", "mepl-agent"]
 resolver = "2"
 
 [workspace.package]
