@@ -396,3 +396,85 @@ pub async fn delete_schedule(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::
         .await?;
     Ok(result.rows_affected() > 0)
 }
+
+// ── Auth ───────────────────────────────────────────────────────────────
+
+pub async fn get_user_by_username(
+    pool: &SqlitePool,
+    username: &str,
+) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?",
+    )
+    .bind(username)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn create_user(
+    pool: &SqlitePool,
+    id: &str,
+    username: &str,
+    password_hash: &str,
+    role: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+        .bind(id)
+        .bind(username)
+        .bind(password_hash)
+        .bind(role)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn user_count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await?;
+    Ok(row.0)
+}
+
+pub async fn create_session(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    expires_at: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)")
+        .bind(id)
+        .bind(user_id)
+        .bind(expires_at)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn get_valid_session(
+    pool: &SqlitePool,
+    session_id: &str,
+) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "SELECT u.id, u.username, u.password_hash, u.role, u.created_at \
+         FROM sessions s JOIN users u ON s.user_id = u.id \
+         WHERE s.id = ? AND s.expires_at > datetime('now')",
+    )
+    .bind(session_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn delete_session(pool: &SqlitePool, session_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM sessions WHERE id = ?")
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn cleanup_expired_sessions(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM sessions WHERE expires_at <= datetime('now')")
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}

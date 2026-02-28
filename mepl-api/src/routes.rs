@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use axum::{
     Json, Router,
     extract::{Multipart, Path, Query, State, WebSocketUpgrade},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
+    middleware,
     response::IntoResponse,
     routing::{delete, get, post},
 };
@@ -11,13 +12,17 @@ use tokio::io::AsyncWriteExt;
 use tower_http::services::ServeDir;
 use uuid::Uuid;
 
-use crate::{AppState, db, models::*, ws};
+use crate::{AppState, auth, db, models::*, ws};
 
 /// Build the full application router.
 pub fn create_router(state: AppState) -> Router {
     Router::new()
         // Health
         .route("/health", get(health_check))
+        // Auth
+        .route("/api/auth/login", post(login))
+        .route("/api/auth/logout", post(logout))
+        .route("/api/auth/me", get(auth_me))
         // Boards
         .route("/api/boards", get(list_boards).post(create_board))
         .route("/api/boards/{id}", get(get_board))
@@ -44,6 +49,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/schedules/{id}", delete(delete_schedule))
         // WebSocket
         .route("/ws/agent", get(ws_agent_handler))
+        // Auth middleware — applied to all routes above
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_auth,
+        ))
         .with_state(state)
         // Serve the web dashboard as static files (fallback for non-API routes)
         .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
@@ -62,6 +72,69 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
             "error": "database unreachable"
         }))).into_response(),
     }
+}
+
+// ── Auth ────────────────────────────────────────────────────────────────
+
+async fn login(
+    State(state): State<AppState>,
+    Json(input): Json<LoginRequest>,
+) -> impl IntoResponse {
+    let user = match db::get_user_by_username(&state.db, &input.username).await {
+        Ok(Some(u)) => u,
+        Ok(None) => return (StatusCode::UNAUTHORIZED, "Invalid credentials").into_response(),
+        Err(e) => {
+            tracing::error!("login: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    if !auth::verify_password(&input.password, &user.password_hash) {
+        return (StatusCode::UNAUTHORIZED, "Invalid credentials").into_response();
+    }
+
+    let session_id = Uuid::new_v4().to_string();
+    let expires = chrono::Utc::now() + chrono::Duration::hours(24);
+    let expires_str = expires.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    if let Err(e) = db::create_session(&state.db, &session_id, &user.id, &expires_str).await {
+        tracing::error!("create_session: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    let cookie = format!(
+        "mepl_session={}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400",
+        session_id
+    );
+
+    let mut response = Json(UserResponse::from(user)).into_response();
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        cookie.parse().unwrap(),
+    );
+    response
+}
+
+async fn logout(headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
+    if let Some(token) = auth::extract_session_token(&headers) {
+        let _ = db::delete_session(&state.db, token).await;
+    }
+    let cookie = "mepl_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0";
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    response.headers_mut().insert(
+        axum::http::header::SET_COOKIE,
+        cookie.parse().unwrap(),
+    );
+    response
+}
+
+async fn auth_me(headers: HeaderMap, State(state): State<AppState>) -> impl IntoResponse {
+    if let Some(token) = auth::extract_session_token(&headers) {
+        if let Ok(Some(user)) = db::get_valid_session(&state.db, token).await {
+            return Json(UserResponse::from(user)).into_response();
+        }
+    }
+    StatusCode::UNAUTHORIZED.into_response()
 }
 
 // ── Boards ──────────────────────────────────────────────────────────────

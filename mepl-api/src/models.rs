@@ -114,3 +114,40 @@ pub struct PaginatedResponse<T: Serialize> {
     pub page: u32,
     pub per_page: u32,
 }
+
+// ── Auth Models ───────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct User {
+    pub id: String,
+    pub username: String,
+    #[serde(skip_serializing)]
+    pub password_hash: String,
+    pub role: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UserResponse {
+    pub id: String,
+    pub username: String,
+    pub role: String,
+    pub created_at: String,
+}
+
+impl From<User> for UserResponse {
+    fn from(u: User) -> Self {
+        Self {
+            id: u.id,
+            username: u.username,
+            role: u.role,
+            created_at: u.created_at,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LoginRequest {
+    pub username: String,
+    pub password: String,
+}

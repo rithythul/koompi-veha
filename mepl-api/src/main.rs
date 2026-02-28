@@ -4,6 +4,7 @@ use sqlx::SqlitePool;
 use tower_http::cors::{CorsLayer, Any};
 use axum::http::Method;
 
+mod auth;
 mod db;
 mod models;
 mod routes;
@@ -60,6 +61,34 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // Seed default admin if no users exist
+    match db::user_count(&db).await {
+        Ok(0) => {
+            let password = uuid::Uuid::new_v4()
+                .to_string()
+                .replace('-', "")
+                .chars()
+                .take(16)
+                .collect::<String>();
+            match auth::hash_password(&password) {
+                Ok(hash) => {
+                    let id = uuid::Uuid::new_v4().to_string();
+                    if let Err(e) = db::create_user(&db, &id, "admin", &hash, "admin").await {
+                        tracing::error!("Failed to create default admin: {e}");
+                    } else {
+                        tracing::info!("=== Default admin created ===");
+                        tracing::info!("Username: admin");
+                        tracing::info!("Password: {password}");
+                        tracing::info!("Change this password after first login!");
+                    }
+                }
+                Err(e) => tracing::error!("Failed to hash password: {e}"),
+            }
+        }
+        Err(e) => tracing::error!("Failed to check user count: {e}"),
+        _ => {} // Users exist, skip seeding
+    }
 
     let state = AppState {
         db: db.clone(),
