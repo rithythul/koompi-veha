@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use axum::{
     Json, Router,
-    extract::{Multipart, Path, State, WebSocketUpgrade},
+    extract::{Multipart, Path, Query, State, WebSocketUpgrade},
     http::StatusCode,
     response::IntoResponse,
     routing::{delete, get, post},
@@ -66,9 +66,17 @@ async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
 
 // ── Boards ──────────────────────────────────────────────────────────────
 
-async fn list_boards(State(state): State<AppState>) -> impl IntoResponse {
-    match db::list_boards(&state.db).await {
-        Ok(boards) => Json(boards).into_response(),
+async fn list_boards(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    match db::list_boards(&state.db, params.page, params.per_page).await {
+        Ok((boards, total)) => Json(PaginatedResponse {
+            data: boards,
+            total,
+            page: params.page,
+            per_page: params.per_page,
+        }).into_response(),
         Err(e) => {
             tracing::error!("list_boards: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -118,9 +126,17 @@ async fn send_board_command(
 
 // ── Groups ──────────────────────────────────────────────────────────────
 
-async fn list_groups(State(state): State<AppState>) -> impl IntoResponse {
-    match db::list_groups(&state.db).await {
-        Ok(groups) => Json(groups).into_response(),
+async fn list_groups(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    match db::list_groups(&state.db, params.page, params.per_page).await {
+        Ok((groups, total)) => Json(PaginatedResponse {
+            data: groups,
+            total,
+            page: params.page,
+            per_page: params.per_page,
+        }).into_response(),
         Err(e) => {
             tracing::error!("list_groups: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -185,9 +201,17 @@ async fn send_group_command(
 
 // ── Media ───────────────────────────────────────────────────────────────
 
-async fn list_media(State(state): State<AppState>) -> impl IntoResponse {
-    match db::list_media(&state.db).await {
-        Ok(media) => Json(media).into_response(),
+async fn list_media(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    match db::list_media(&state.db, params.page, params.per_page).await {
+        Ok((media, total)) => Json(PaginatedResponse {
+            data: media,
+            total,
+            page: params.page,
+            per_page: params.per_page,
+        }).into_response(),
         Err(e) => {
             tracing::error!("list_media: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -380,14 +404,22 @@ async fn delete_media(
 
 // ── Playlists ───────────────────────────────────────────────────────────
 
-async fn list_playlists(State(state): State<AppState>) -> impl IntoResponse {
-    match db::list_playlists(&state.db).await {
-        Ok(rows) => {
+async fn list_playlists(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    match db::list_playlists(&state.db, params.page, params.per_page).await {
+        Ok((rows, total)) => {
             let responses: Vec<PlaylistResponse> = rows
                 .into_iter()
                 .map(playlist_row_to_response)
                 .collect();
-            Json(responses).into_response()
+            Json(PaginatedResponse {
+                data: responses,
+                total,
+                page: params.page,
+                per_page: params.per_page,
+            }).into_response()
         }
         Err(e) => {
             tracing::error!("list_playlists: {}", e);
@@ -477,9 +509,17 @@ fn playlist_row_to_response(row: PlaylistRow) -> PlaylistResponse {
 
 // ── Schedules ───────────────────────────────────────────────────────────
 
-async fn list_schedules(State(state): State<AppState>) -> impl IntoResponse {
-    match db::list_schedules(&state.db).await {
-        Ok(schedules) => Json(schedules).into_response(),
+async fn list_schedules(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    match db::list_schedules(&state.db, params.page, params.per_page).await {
+        Ok((schedules, total)) => Json(PaginatedResponse {
+            data: schedules,
+            total,
+            page: params.page,
+            per_page: params.per_page,
+        }).into_response(),
         Err(e) => {
             tracing::error!("list_schedules: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()

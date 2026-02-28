@@ -41,10 +41,23 @@ pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error
 
 // ── Boards ──────────────────────────────────────────────────────────────
 
-pub async fn list_boards(pool: &SqlitePool) -> Result<Vec<Board>, sqlx::Error> {
-    sqlx::query_as::<_, Board>("SELECT id, name, group_id, status, last_seen, config, created_at FROM boards ORDER BY created_at DESC")
-        .fetch_all(pool)
-        .await
+pub async fn list_boards(pool: &SqlitePool, page: u32, per_page: u32) -> Result<(Vec<Board>, i64), sqlx::Error> {
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM boards")
+        .fetch_one(pool)
+        .await?;
+
+    let offset = ((page.max(1) - 1) * per_page) as i64;
+    let limit = per_page.min(200) as i64;
+
+    let boards = sqlx::query_as::<_, Board>(
+        "SELECT id, name, group_id, status, last_seen, config, created_at FROM boards ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok((boards, total.0))
 }
 
 pub async fn get_board(pool: &SqlitePool, id: &str) -> Result<Option<Board>, sqlx::Error> {
@@ -107,10 +120,23 @@ pub async fn get_boards_by_group(
 
 // ── Groups ──────────────────────────────────────────────────────────────
 
-pub async fn list_groups(pool: &SqlitePool) -> Result<Vec<Group>, sqlx::Error> {
-    sqlx::query_as::<_, Group>("SELECT id, name, created_at FROM groups ORDER BY created_at DESC")
-        .fetch_all(pool)
-        .await
+pub async fn list_groups(pool: &SqlitePool, page: u32, per_page: u32) -> Result<(Vec<Group>, i64), sqlx::Error> {
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM groups")
+        .fetch_one(pool)
+        .await?;
+
+    let offset = ((page.max(1) - 1) * per_page) as i64;
+    let limit = per_page.min(200) as i64;
+
+    let groups = sqlx::query_as::<_, Group>(
+        "SELECT id, name, created_at FROM groups ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok((groups, total.0))
 }
 
 pub async fn get_group(pool: &SqlitePool, id: &str) -> Result<Option<Group>, sqlx::Error> {
@@ -142,12 +168,23 @@ pub async fn delete_group(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Err
 
 // ── Media ───────────────────────────────────────────────────────────────
 
-pub async fn list_media(pool: &SqlitePool) -> Result<Vec<Media>, sqlx::Error> {
-    sqlx::query_as::<_, Media>(
-        "SELECT id, name, filename, mime_type, size, uploaded_at FROM media ORDER BY uploaded_at DESC",
+pub async fn list_media(pool: &SqlitePool, page: u32, per_page: u32) -> Result<(Vec<Media>, i64), sqlx::Error> {
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM media")
+        .fetch_one(pool)
+        .await?;
+
+    let offset = ((page.max(1) - 1) * per_page) as i64;
+    let limit = per_page.min(200) as i64;
+
+    let media = sqlx::query_as::<_, Media>(
+        "SELECT id, name, filename, mime_type, size, uploaded_at FROM media ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
-    .await
+    .await?;
+
+    Ok((media, total.0))
 }
 
 pub async fn get_media(pool: &SqlitePool, id: &str) -> Result<Option<Media>, sqlx::Error> {
@@ -183,12 +220,23 @@ pub async fn delete_media(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Err
 
 // ── Playlists ───────────────────────────────────────────────────────────
 
-pub async fn list_playlists(pool: &SqlitePool) -> Result<Vec<PlaylistRow>, sqlx::Error> {
-    sqlx::query_as::<_, PlaylistRow>(
-        "SELECT id, name, items, loop_playlist, created_at, updated_at FROM playlists ORDER BY created_at DESC",
+pub async fn list_playlists(pool: &SqlitePool, page: u32, per_page: u32) -> Result<(Vec<PlaylistRow>, i64), sqlx::Error> {
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM playlists")
+        .fetch_one(pool)
+        .await?;
+
+    let offset = ((page.max(1) - 1) * per_page) as i64;
+    let limit = per_page.min(200) as i64;
+
+    let rows = sqlx::query_as::<_, PlaylistRow>(
+        "SELECT id, name, items, loop_playlist, created_at, updated_at FROM playlists ORDER BY created_at DESC LIMIT ? OFFSET ?"
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
-    .await
+    .await?;
+
+    Ok((rows, total.0))
 }
 
 pub async fn get_playlist(
@@ -253,12 +301,23 @@ pub async fn delete_playlist(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::
 
 // ── Schedules ───────────────────────────────────────────────────────────
 
-pub async fn list_schedules(pool: &SqlitePool) -> Result<Vec<Schedule>, sqlx::Error> {
-    sqlx::query_as::<_, Schedule>(
-        "SELECT id, board_id, group_id, playlist_id, start_time, end_time, days_of_week, priority, created_at FROM schedules ORDER BY priority DESC",
+pub async fn list_schedules(pool: &SqlitePool, page: u32, per_page: u32) -> Result<(Vec<Schedule>, i64), sqlx::Error> {
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM schedules")
+        .fetch_one(pool)
+        .await?;
+
+    let offset = ((page.max(1) - 1) * per_page) as i64;
+    let limit = per_page.min(200) as i64;
+
+    let schedules = sqlx::query_as::<_, Schedule>(
+        "SELECT id, board_id, group_id, playlist_id, start_time, end_time, days_of_week, priority, created_at FROM schedules ORDER BY priority DESC LIMIT ? OFFSET ?"
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(pool)
-    .await
+    .await?;
+
+    Ok((schedules, total.0))
 }
 
 pub async fn create_schedule(

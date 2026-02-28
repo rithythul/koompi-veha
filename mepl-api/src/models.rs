@@ -95,3 +95,22 @@ pub struct CreateSchedule {
 pub struct CommandRequest {
     pub command: mepl_core::command::PlayerCommand,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PaginationParams {
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_per_page")]
+    pub per_page: u32,
+}
+
+fn default_page() -> u32 { 1 }
+fn default_per_page() -> u32 { 50 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PaginatedResponse<T: Serialize> {
+    pub data: Vec<T>,
+    pub total: i64,
+    pub page: u32,
+    pub per_page: u32,
+}
