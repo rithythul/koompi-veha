@@ -1,7 +1,9 @@
+pub mod decoder;
 pub mod error;
 pub mod frame;
 pub mod sink;
 
+pub use decoder::Decoder;
 pub use error::Error;
 pub use frame::VideoFrame;
 pub use sink::OutputSink;
