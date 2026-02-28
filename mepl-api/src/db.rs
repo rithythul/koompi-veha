@@ -5,6 +5,8 @@ use crate::models::*;
 
 const MIGRATION_SQL: &str = include_str!("../migrations/001_init.sql");
 const MIGRATION_002_SQL: &str = include_str!("../migrations/002_indexes.sql");
+const MIGRATION_003_SQL: &str = include_str!("../migrations/003_dooh.sql");
+const MIGRATION_003B_SQL: &str = include_str!("../migrations/003b_board_extensions.sql");
 
 /// Initialize the database pool and run migrations.
 pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error>> {
@@ -33,6 +35,40 @@ pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error
         if !trimmed.is_empty() {
             sqlx::query(trimmed).execute(&pool).await?;
         }
+    }
+
+    // Run DOOH migration (003) — check if zones table already exists
+    let zones_exists: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='zones'",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    if zones_exists.0 == 0 {
+        for statement in MIGRATION_003_SQL.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                sqlx::query(trimmed).execute(&pool).await?;
+            }
+        }
+        tracing::info!("DOOH migration (003) applied");
+    }
+
+    // Run board extensions migration (003b) — check if zone_id column exists on boards
+    let zone_col_exists: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM pragma_table_info('boards') WHERE name='zone_id'",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    if zone_col_exists.0 == 0 {
+        for statement in MIGRATION_003B_SQL.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                sqlx::query(trimmed).execute(&pool).await?;
+            }
+        }
+        tracing::info!("Board extensions migration (003b) applied");
     }
 
     tracing::info!("Database initialized at {}", path);
