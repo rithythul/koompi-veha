@@ -1,3 +1,4 @@
+pub mod command;
 pub mod decoder;
 pub mod error;
 pub mod frame;
