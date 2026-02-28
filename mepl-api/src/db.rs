@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::models::*;
 
 const MIGRATION_SQL: &str = include_str!("../migrations/001_init.sql");
+const MIGRATION_002_SQL: &str = include_str!("../migrations/002_indexes.sql");
 
 /// Initialize the database pool and run migrations.
 pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error>> {
@@ -20,6 +21,14 @@ pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error
 
     // Run migrations: split by statement and execute each
     for statement in MIGRATION_SQL.split(';') {
+        let trimmed = statement.trim();
+        if !trimmed.is_empty() {
+            sqlx::query(trimmed).execute(&pool).await?;
+        }
+    }
+
+    // Run index migration
+    for statement in MIGRATION_002_SQL.split(';') {
         let trimmed = statement.trim();
         if !trimmed.is_empty() {
             sqlx::query(trimmed).execute(&pool).await?;
