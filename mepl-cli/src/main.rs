@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 
-use mepl_core::{Decoder, OutputSink};
+use mepl_core::{Decoder, OutputSink, Player};
 use mepl_output::WindowSink;
 
 #[derive(Parser)]
@@ -28,6 +28,18 @@ enum Commands {
         #[arg(long)]
         height: Option<u32>,
     },
+
+    /// Play a JSON playlist file.
+    PlayPlaylist {
+        /// Path to playlist JSON file.
+        playlist: String,
+
+        #[arg(long)]
+        width: Option<u32>,
+
+        #[arg(long)]
+        height: Option<u32>,
+    },
 }
 
 fn main() {
@@ -43,6 +55,16 @@ fn main() {
             height,
         } => {
             if let Err(e) = play(&source, width, height) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::PlayPlaylist {
+            playlist,
+            width,
+            height,
+        } => {
+            if let Err(e) = play_playlist(&playlist, width, height) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -84,5 +106,30 @@ fn play(source: &str, width: Option<u32>, height: Option<u32>) -> mepl_core::Res
     }
 
     println!("Playback finished.");
+    Ok(())
+}
+
+fn play_playlist(
+    playlist_path: &str,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> mepl_core::Result<()> {
+    let playlist = mepl_core::Playlist::from_json_file(playlist_path)?;
+    let (w, h) = match (width, height) {
+        (Some(w), Some(h)) => (w, h),
+        _ => (1920, 1080), // default resolution for playlists
+    };
+
+    println!(
+        "Playing playlist: {} ({} items)",
+        playlist.name,
+        playlist.len()
+    );
+
+    let mut sink = WindowSink::new(&format!("mepl - {}", playlist.name), w, h)?;
+    let mut player = Player::new();
+    player.play_playlist(&playlist, &mut sink)?;
+
+    println!("Playlist finished.");
     Ok(())
 }
