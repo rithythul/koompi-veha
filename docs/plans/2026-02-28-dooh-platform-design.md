@@ -1,4 +1,4 @@
-# DOOH Platform Design — koompi-dooh
+# veha Platform Design — koompi-veha
 
 **Date:** 2026-02-28
 **Status:** Proposed
@@ -6,7 +6,7 @@
 
 ## 1. Problem Statement
 
-koompi-dooh is currently a media player fleet management system. It can push playlists to boards and control playback remotely. However, it lacks the data model and workflows needed for a Digital Out-of-Home (DOOH) advertising business where:
+koompi-veha is currently a media player fleet management system. It can push playlists to boards and control playback remotely. However, it lacks the data model and workflows needed for a Digital Out-of-Home (veha) advertising business where:
 
 - Different billboards show different ads from different advertisers
 - Timeslots are sold per-board or per-zone to advertisers
@@ -61,7 +61,7 @@ koompi-dooh is currently a media player fleet management system. It can push pla
 
 | Phase | Scope |
 |-------|-------|
-| Phase 1 (with DOOH launch) | S1: Session auth for dashboard, S2: TLS docs/config, S3: Admin/operator roles |
+| Phase 1 (with veha launch) | S1: Session auth for dashboard, S2: TLS docs/config, S3: Admin/operator roles |
 | Phase 2 (scale) | S5: Rate limiting, S6: Authed media downloads, S8: PostgreSQL migration path |
 | Phase 3 (advertiser portal) | Per-advertiser auth, creative approval workflow, per-agent API keys |
 
@@ -116,7 +116,7 @@ CREATE TABLE IF NOT EXISTS zones (
 
 Zones form a tree: Cambodia > Phnom Penh > BKK1. Boards reference a zone. Bookings can target a zone (all boards in that zone and its children).
 
-#### `boards` — Extended with location + DOOH fields
+#### `boards` — Extended with location + veha fields
 
 Extend the existing `boards` table with new columns:
 
@@ -319,7 +319,7 @@ The agent caches the last resolved playlist in a local file. If the WebSocket co
 
 ### 6.1 New Message Types
 
-Add to `WsMessage` enum in both dooh-api and dooh-agent:
+Add to `WsMessage` enum in both veha-api and veha-agent:
 
 ```rust
 pub enum WsMessage {
@@ -521,14 +521,14 @@ The application itself does not terminate TLS. Deployment guide documents using 
 
 ```
 caddy:
-  mepl.ppml.com.kh {
+  veha.ppml.com.kh {
     reverse_proxy localhost:3000
   }
 ```
 
 ## 10. Implementation Phases
 
-### Phase 1: DOOH Core (priority)
+### Phase 1: veha Core (priority)
 1. Database migration (zones, advertisers, campaigns, creatives, bookings, play_logs, users)
 2. Session authentication + roles
 3. Advertiser CRUD endpoints
@@ -559,6 +559,6 @@ caddy:
 - Existing agents continue to work unchanged until they're updated (Register + Status protocol is untouched)
 - Existing `schedules` table stays functional for `house_only` boards
 - Existing `playlists` table stays functional
-- New DOOH features are additive — no existing endpoints change behavior
+- New veha features are additive — no existing endpoints change behavior
 - Dashboard frontend handles both old (array) and new (paginated) response formats during transition
 - `sell_mode` defaults to `house_only`, so existing boards behave exactly as before

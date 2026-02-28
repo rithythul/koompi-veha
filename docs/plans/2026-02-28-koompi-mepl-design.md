@@ -1,11 +1,11 @@
-# koompi-dooh Design Document
+# koompi-veha Design Document
 
 **Date:** 2026-02-28
 **Status:** Approved
 
 ## Overview
 
-koompi-dooh is a Rust-based media player system wrapping FFmpeg, designed for three deployment targets:
+koompi-veha is a Rust-based media player system wrapping FFmpeg, designed for three deployment targets:
 1. **LED billboard/ad boards** — headless player with remote fleet management
 2. **Desktop** — local testing and preview application
 3. **Web** — management dashboard and browser-based player preview
@@ -13,20 +13,20 @@ koompi-dooh is a Rust-based media player system wrapping FFmpeg, designed for th
 ## Architecture: Layered Cargo Workspace
 
 ```
-koompi-dooh/
-├── dooh-core/        # Library: FFmpeg wrapper, decoding, frame pipeline
-├── dooh-output/      # Pluggable output backends (framebuffer, network, window)
-├── dooh-player/      # Headless player service daemon
-├── dooh-api/         # REST/WebSocket API server for fleet management
-├── dooh-agent/       # Board agent: runs on each LED board
-├── mepl-dashboard/   # Web dashboard frontend
-├── dooh-cli/         # CLI tool for testing and management
-└── dooh-web/         # WASM player for browser preview
+koompi-veha/
+├── veha-core/        # Library: FFmpeg wrapper, decoding, frame pipeline
+├── veha-output/      # Pluggable output backends (framebuffer, network, window)
+├── veha-player/      # Headless player service daemon
+├── veha-api/         # REST/WebSocket API server for fleet management
+├── veha-agent/       # Board agent: runs on each LED board
+├── veha-dashboard/   # Web dashboard frontend
+├── veha-cli/         # CLI tool for testing and management
+└── veha-web/         # WASM player for browser preview
 ```
 
 ## Components
 
-### 1. dooh-core (Library)
+### 1. veha-core (Library)
 
 FFmpeg wrapper via `ffmpeg-next` crate with:
 - **Demuxing**: files (MP4/MKV/AVI), streams (RTSP/RTMP/HLS), images (PNG/JPG)
@@ -44,7 +44,7 @@ pub trait OutputSink: Send {
 }
 ```
 
-### 2. dooh-output (Library)
+### 2. veha-output (Library)
 
 Pluggable output backends, feature-gated:
 - **Framebuffer/DRM**: for LED boards via HDMI (`drm-rs`)
@@ -53,16 +53,16 @@ Pluggable output backends, feature-gated:
 - **WASM/Canvas**: browser rendering via `web-sys`
 - **Null**: testing backend
 
-### 3. dooh-player (Binary)
+### 3. veha-player (Binary)
 
 Headless daemon for each board:
-- Embeds dooh-core + output backend
+- Embeds veha-core + output backend
 - Local Unix socket for agent communication
 - Watchdog with auto-restart and fallback playlist
 - Graceful media transitions (fade, cut)
 - Playback event logging
 
-### 4. dooh-agent (Binary)
+### 4. veha-agent (Binary)
 
 Runs on each LED board alongside the player:
 - Persistent WebSocket connection to central API (auto-reconnect)
@@ -71,7 +71,7 @@ Runs on each LED board alongside the player:
 - Local media cache with sync
 - Offline mode: continues playing on connection loss
 
-### 5. dooh-api (Binary)
+### 5. veha-api (Binary)
 
 Central fleet management server:
 - REST API (axum) for CRUD: boards, playlists, media, schedules
@@ -80,7 +80,7 @@ Central fleet management server:
 - Storage: SQLite (sqlx) for metadata, filesystem for media
 - Board grouping for batch operations
 
-### 6. mepl-dashboard (Frontend)
+### 6. veha-dashboard (Frontend)
 
 Web SPA served by API server:
 - Board map/list with real-time status
@@ -90,18 +90,18 @@ Web SPA served by API server:
 - Live board preview (screenshots)
 - Group management
 
-### 7. dooh-cli (Binary)
+### 7. veha-cli (Binary)
 
 Command-line interface:
-- Local playback: `mepl play video.mp4`
-- Board management: `mepl boards list`, `mepl boards push`
-- Media upload: `mepl upload file.mp4`
-- Diagnostics: `mepl status board-42`
+- Local playback: `veha play video.mp4`
+- Board management: `veha boards list`, `veha boards push`
+- Media upload: `veha upload file.mp4`
+- Diagnostics: `veha status board-42`
 
-### 8. dooh-web (WASM Library)
+### 8. veha-web (WASM Library)
 
 Browser player for preview:
-- dooh-core compiled to WASM
+- veha-core compiled to WASM
 - Canvas API / WebCodecs rendering
 - Limited to browser-decodable formats
 
@@ -133,12 +133,12 @@ Dashboard (Web UI) <--REST/WS--> API Server <--WebSocket--> Agent 1..N
 
 ## Build Phases
 
-1. dooh-core — FFmpeg decoding
-2. dooh-output — window backend
-3. dooh-player — headless daemon
-4. dooh-cli — local testing
-5. dooh-api — REST/WebSocket server
-6. dooh-agent — board agent
-7. mepl-dashboard — web UI
-8. dooh-output framebuffer — LED output
-9. dooh-web — WASM player
+1. veha-core — FFmpeg decoding
+2. veha-output — window backend
+3. veha-player — headless daemon
+4. veha-cli — local testing
+5. veha-api — REST/WebSocket server
+6. veha-agent — board agent
+7. veha-dashboard — web UI
+8. veha-output framebuffer — LED output
+9. veha-web — WASM player

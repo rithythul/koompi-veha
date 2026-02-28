@@ -1,22 +1,22 @@
-# koompi-dooh Phases 3-9 Implementation Plan
+# koompi-veha Phases 3-9 Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build the full fleet management system: headless player daemon, REST/WebSocket API, board agent with remote control, web dashboard, framebuffer output for LED boards, and WASM player preview.
 
-**Architecture:** Extend the existing Cargo workspace with 5 new crates (dooh-player, dooh-api, dooh-agent, mepl-dashboard, dooh-web) plus a framebuffer output backend in dooh-output.
+**Architecture:** Extend the existing Cargo workspace with 5 new crates (veha-player, veha-api, veha-agent, veha-dashboard, veha-web) plus a framebuffer output backend in veha-output.
 
 **Tech Stack:** Rust, tokio, axum, sqlx (SQLite), serde, tungstenite/tokio-tungstenite, drm-rs, wasm-bindgen
 
 ---
 
-## Phase 3: Headless Player Daemon (dooh-player)
+## Phase 3: Headless Player Daemon (veha-player)
 
-### Task 1: Create dooh-player crate with config and daemon skeleton
+### Task 1: Create veha-player crate with config and daemon skeleton
 
 Create a headless player service that runs on each LED board.
 
-**New crate: dooh-player/**
+**New crate: veha-player/**
 - Config file (TOML): output backend, resolution, default playlist, API endpoint
 - Daemon main loop: load config → init output → load playlist → play
 - Signal handling: SIGTERM for graceful shutdown, SIGHUP for config reload
@@ -31,7 +31,7 @@ Add a Unix socket or channel-based command interface so the agent can control th
 
 ### Task 3: Player state machine improvements
 
-Enhance dooh-core Player to support:
+Enhance veha-core Player to support:
 - Pause/Resume (currently only Playing/Stopped)
 - Skip to next/previous item
 - Thread-safe state via Arc<Mutex<>> or channels
@@ -39,22 +39,22 @@ Enhance dooh-core Player to support:
 
 ---
 
-## Phase 4: CLI Enhancements (dooh-cli)
+## Phase 4: CLI Enhancements (veha-cli)
 
 ### Task 4: Board management CLI commands
 
 Add subcommands:
-- `mepl boards list` — list boards from API
-- `mepl boards status <id>` — get board status
-- `mepl boards command <id> <cmd>` — send command to board
-- `mepl upload <file>` — upload media to API server
-- `mepl config` — configure API endpoint
+- `veha boards list` — list boards from API
+- `veha boards status <id>` — get board status
+- `veha boards command <id> <cmd>` — send command to board
+- `veha upload <file>` — upload media to API server
+- `veha config` — configure API endpoint
 
 ---
 
-## Phase 5: API Server (dooh-api)
+## Phase 5: API Server (veha-api)
 
-### Task 5: Create dooh-api crate with axum skeleton
+### Task 5: Create veha-api crate with axum skeleton
 
 - axum HTTP server with CORS
 - SQLite database via sqlx with migrations
@@ -96,11 +96,11 @@ CRUD endpoints:
 
 ---
 
-## Phase 6: Board Agent (dooh-agent)
+## Phase 6: Board Agent (veha-agent)
 
-### Task 10: Create dooh-agent crate
+### Task 10: Create veha-agent crate
 
-Agent binary that runs on each LED board alongside dooh-player:
+Agent binary that runs on each LED board alongside veha-player:
 - Config: board_id, API server URL, API key, player socket path
 - WebSocket client connecting to API server (auto-reconnect)
 - Forwards commands from API to local player via Unix socket
@@ -120,7 +120,7 @@ Agent binary that runs on each LED board alongside dooh-player:
 
 ---
 
-## Phase 7: Web Dashboard (mepl-dashboard)
+## Phase 7: Web Dashboard (veha-dashboard)
 
 ### Task 13: Dashboard static files served by API
 
@@ -142,7 +142,7 @@ Minimal but functional web dashboard:
 
 ### Task 15: DRM/Framebuffer output backend
 
-Add to dooh-output:
+Add to veha-output:
 - Feature-gated `framebuffer` backend
 - Direct framebuffer write via /dev/fb0 (simpler, works everywhere)
 - Fallback from DRM to framebuffer
@@ -154,8 +154,8 @@ Add to dooh-output:
 
 ### Task 16: WASM player crate
 
-dooh-web crate:
-- Compile subset of dooh-core to WASM
+veha-web crate:
+- Compile subset of veha-core to WASM
 - Canvas-based rendering via web-sys
 - JavaScript API for control
 - Note: Full FFmpeg in WASM is complex; start with a simplified version that plays pre-decoded frames or uses browser-native video decoding

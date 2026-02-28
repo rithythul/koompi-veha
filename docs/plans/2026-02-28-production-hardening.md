@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Transform koompi-dooh from a functional prototype into a production-ready system by addressing the 26 critical and key important issues identified in the production audit.
+**Goal:** Transform koompi-veha from a functional prototype into a production-ready system by addressing the 26 critical and key important issues identified in the production audit.
 
 **Architecture:** No architectural changes — we harden what exists. Security middleware wraps existing routes. Panics become graceful errors. Streaming replaces in-memory I/O. The agent gets timeouts and backoff fixes. All changes are backward-compatible with existing configs and database schemas.
 
@@ -10,20 +10,20 @@
 
 ---
 
-## Task 1: Harden dooh-core — Safety & Error Types
+## Task 1: Harden veha-core — Safety & Error Types
 
 **Files:**
-- Modify: `dooh-core/src/lib.rs`
-- Modify: `dooh-core/src/error.rs`
-- Modify: `dooh-core/src/frame.rs`
-- Modify: `dooh-core/src/playlist.rs`
-- Modify: `dooh-core/src/player.rs`
-- Modify: `dooh-core/Cargo.toml`
-- Test: `dooh-core/tests/` (existing tests must still pass)
+- Modify: `veha-core/src/lib.rs`
+- Modify: `veha-core/src/error.rs`
+- Modify: `veha-core/src/frame.rs`
+- Modify: `veha-core/src/playlist.rs`
+- Modify: `veha-core/src/player.rs`
+- Modify: `veha-core/Cargo.toml`
+- Test: `veha-core/tests/` (existing tests must still pass)
 
 **Step 1: Expand error types**
 
-Replace the catch-all `Error::Other(String)` with specific variants in `dooh-core/src/error.rs`:
+Replace the catch-all `Error::Other(String)` with specific variants in `veha-core/src/error.rs`:
 
 ```rust
 #[derive(Debug, thiserror::Error)]
@@ -59,7 +59,7 @@ pub enum Error {
 
 **Step 2: Fix init() panic**
 
-Replace `expect()` with `Result` in `dooh-core/src/lib.rs`:
+Replace `expect()` with `Result` in `veha-core/src/lib.rs`:
 
 ```rust
 use std::sync::Once;
@@ -79,15 +79,15 @@ pub fn init() -> Result<()> {
 }
 ```
 
-Update callers in `dooh-player/src/main.rs` (line 36) and `dooh-cli/src/main.rs`:
+Update callers in `veha-player/src/main.rs` (line 36) and `veha-cli/src/main.rs`:
 ```rust
-dooh_core::init().expect("FFmpeg initialization failed — check FFmpeg libraries are installed");
+veha_core::init().expect("FFmpeg initialization failed — check FFmpeg libraries are installed");
 ```
 (Keep the expect here since this is main() startup — binary can't run without FFmpeg.)
 
 **Step 3: Add checked arithmetic to frame.rs**
 
-In `dooh-core/src/frame.rs`, fix `VideoFrame::new()` (line 30-38):
+In `veha-core/src/frame.rs`, fix `VideoFrame::new()` (line 30-38):
 
 ```rust
 pub fn new(width: u32, height: u32) -> Result<Self, crate::Error> {
@@ -114,7 +114,7 @@ pub fn new(width: u32, height: u32) -> Result<Self, crate::Error> {
 
 **Step 4: Guard division by zero in timestamp_secs**
 
-In `dooh-core/src/frame.rs` line 54-58:
+In `veha-core/src/frame.rs` line 54-58:
 
 ```rust
 pub fn timestamp_secs(&self) -> Option<f64> {
@@ -129,7 +129,7 @@ pub fn timestamp_secs(&self) -> Option<f64> {
 
 **Step 5: Add file size limit to playlist loading**
 
-In `dooh-core/src/playlist.rs`, fix `from_json_file()` (line 42-46):
+In `veha-core/src/playlist.rs`, fix `from_json_file()` (line 42-46):
 
 ```rust
 pub fn from_json_file(path: &str) -> crate::Result<Self> {
@@ -147,7 +147,7 @@ pub fn from_json_file(path: &str) -> crate::Result<Self> {
 
 **Step 6: Make playlist writes atomic**
 
-In `dooh-core/src/playlist.rs`, fix `to_json_file()` (line 49-54):
+In `veha-core/src/playlist.rs`, fix `to_json_file()` (line 49-54):
 
 ```rust
 pub fn to_json_file(&self, path: &str) -> crate::Result<()> {
@@ -167,7 +167,7 @@ Expected: All 11 tests pass. (The `from_str` error conversion now uses `From` tr
 **Step 8: Commit**
 
 ```bash
-git add dooh-core/
+git add veha-core/
 git commit -m "fix(core): harden error types, checked arithmetic, atomic writes
 
 - Replace Error::Other catch-all with specific variants (JsonParse, InvalidDimensions, ImageDecode, Timeout)
@@ -182,18 +182,18 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
-## Task 2: Harden dooh-api — Replace Panics, Add Health Endpoint, Graceful Shutdown
+## Task 2: Harden veha-api — Replace Panics, Add Health Endpoint, Graceful Shutdown
 
 **Files:**
-- Modify: `dooh-api/src/main.rs`
-- Modify: `dooh-api/src/db.rs`
-- Modify: `dooh-api/src/ws.rs`
-- Modify: `dooh-api/src/routes.rs`
-- Modify: `dooh-api/Cargo.toml`
+- Modify: `veha-api/src/main.rs`
+- Modify: `veha-api/src/db.rs`
+- Modify: `veha-api/src/ws.rs`
+- Modify: `veha-api/src/routes.rs`
+- Modify: `veha-api/Cargo.toml`
 
 **Step 1: Fix db.rs panics**
 
-Replace all `expect()`/`unwrap()` in `dooh-api/src/db.rs`:
+Replace all `expect()`/`unwrap()` in `veha-api/src/db.rs`:
 
 ```rust
 /// Initialize the database pool and run migrations.
@@ -243,7 +243,7 @@ Same pattern for `create_group` and `create_playlist`.
 
 **Step 2: Fix ws.rs panics**
 
-In `dooh-api/src/ws.rs`, replace `serde_json::to_string(...).unwrap()` at lines 39 and 122:
+In `veha-api/src/ws.rs`, replace `serde_json::to_string(...).unwrap()` at lines 39 and 122:
 
 ```rust
 // Line 39 — in handle_agent_socket
@@ -274,7 +274,7 @@ pub async fn send_command_to_board(...) -> bool {
 
 **Step 3: Fix WebSocket duplicate connection memory leak**
 
-In `dooh-api/src/ws.rs`, before inserting new connection (line 66-69), abort the old one:
+In `veha-api/src/ws.rs`, before inserting new connection (line 66-69), abort the old one:
 
 ```rust
 // Create a channel for sending commands to this agent.
@@ -294,7 +294,7 @@ let (cmd_tx, mut cmd_rx) = mpsc::channel::<String>(32);
 
 **Step 4: Add health endpoint and graceful shutdown to main.rs**
 
-Replace `dooh-api/src/main.rs`:
+Replace `veha-api/src/main.rs`:
 
 ```rust
 use clap::Parser;
@@ -316,14 +316,14 @@ pub struct AppState {
 }
 
 #[derive(Parser)]
-#[command(name = "dooh-api", about = "koompi-dooh fleet management API server")]
+#[command(name = "veha-api", about = "koompi-veha fleet management API server")]
 struct Args {
     /// Address to bind (e.g. 0.0.0.0:3000)
     #[arg(short, long, default_value = "0.0.0.0:3000")]
     bind: String,
 
     /// Path to SQLite database file
-    #[arg(long, default_value = "mepl.db")]
+    #[arg(long, default_value = "veha.db")]
     database: String,
 
     /// Directory for uploaded media files
@@ -409,7 +409,7 @@ async fn main() {
 
 **Step 5: Add health endpoint to routes.rs**
 
-Add at top of `create_router()` in `dooh-api/src/routes.rs`:
+Add at top of `create_router()` in `veha-api/src/routes.rs`:
 
 ```rust
 .route("/health", get(health_check))
@@ -440,7 +440,7 @@ Run: `cargo build --workspace && cargo test --workspace`
 **Step 7: Commit**
 
 ```bash
-git add dooh-api/
+git add veha-api/
 git commit -m "fix(api): remove panics, add health endpoint, graceful shutdown, configurable CORS
 
 - Replace all expect()/unwrap() in db.rs, ws.rs, main.rs with proper error handling
@@ -459,12 +459,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Task 3: Streaming File I/O + Upload Limits
 
 **Files:**
-- Modify: `dooh-api/src/routes.rs`
-- Modify: `dooh-api/Cargo.toml`
+- Modify: `veha-api/src/routes.rs`
+- Modify: `veha-api/Cargo.toml`
 
 **Step 1: Add dependencies**
 
-Add to `dooh-api/Cargo.toml`:
+Add to `veha-api/Cargo.toml`:
 
 ```toml
 tokio-util = { version = "0.7", features = ["io"] }
@@ -472,7 +472,7 @@ tokio-util = { version = "0.7", features = ["io"] }
 
 **Step 2: Stream uploads to disk instead of memory**
 
-Replace `upload_media` handler in `dooh-api/src/routes.rs` (lines 180-251):
+Replace `upload_media` handler in `veha-api/src/routes.rs` (lines 180-251):
 
 ```rust
 /// Maximum upload size: 2GB
@@ -639,12 +639,12 @@ async fn download_media(
 
 **Step 4: Build and test**
 
-Run: `cargo build -p dooh-api && cargo test --workspace`
+Run: `cargo build -p veha-api && cargo test --workspace`
 
 **Step 5: Commit**
 
 ```bash
-git add dooh-api/
+git add veha-api/
 git commit -m "fix(api): stream file uploads/downloads, add 2GB upload limit, path traversal guard
 
 - Stream uploads directly to disk via chunked reads (no full-file memory load)
@@ -660,12 +660,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Task 4: Add Database Indexes
 
 **Files:**
-- Create: `dooh-api/migrations/002_indexes.sql`
-- Modify: `dooh-api/src/db.rs` (add new migration)
+- Create: `veha-api/migrations/002_indexes.sql`
+- Modify: `veha-api/src/db.rs` (add new migration)
 
 **Step 1: Create index migration**
 
-Create `dooh-api/migrations/002_indexes.sql`:
+Create `veha-api/migrations/002_indexes.sql`:
 
 ```sql
 CREATE INDEX IF NOT EXISTS idx_boards_group_id ON boards(group_id);
@@ -680,7 +680,7 @@ CREATE INDEX IF NOT EXISTS idx_schedules_priority ON schedules(priority);
 
 **Step 2: Load new migration in db.rs**
 
-In `dooh-api/src/db.rs`, add after line 6:
+In `veha-api/src/db.rs`, add after line 6:
 
 ```rust
 const MIGRATION_002_SQL: &str = include_str!("../migrations/002_indexes.sql");
@@ -699,12 +699,12 @@ In the `init_db` function, after running MIGRATION_SQL, add:
 
 **Step 3: Build and test**
 
-Run: `cargo build -p dooh-api && cargo test --workspace`
+Run: `cargo build -p veha-api && cargo test --workspace`
 
 **Step 4: Commit**
 
 ```bash
-git add dooh-api/
+git add veha-api/
 git commit -m "perf(api): add database indexes for FK columns and sort keys
 
 - Add indexes on boards.group_id, boards.status
@@ -716,15 +716,15 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
-## Task 5: Harden dooh-player — Remove Panics, Signal Handling, Socket Cleanup
+## Task 5: Harden veha-player — Remove Panics, Signal Handling, Socket Cleanup
 
 **Files:**
-- Modify: `dooh-player/src/main.rs`
-- Modify: `dooh-player/src/ipc.rs`
+- Modify: `veha-player/src/main.rs`
+- Modify: `veha-player/src/ipc.rs`
 
 **Step 1: Add signal handling and socket cleanup**
 
-In `dooh-player/src/main.rs`, add shutdown coordination. Replace lines 56 onward:
+In `veha-player/src/main.rs`, add shutdown coordination. Replace lines 56 onward:
 
 ```rust
     // Shutdown flag
@@ -806,19 +806,19 @@ Replace `.expect()` calls with error handling:
 
 ```rust
     let mut sink: Box<dyn OutputSink> = match config.output_backend.as_str() {
-        "window" => match mepl_output::WindowSink::new(&config.title, config.width, config.height) {
+        "window" => match veha_output::WindowSink::new(&config.title, config.width, config.height) {
             Ok(s) => Box::new(s),
             Err(e) => {
                 tracing::error!("Failed to create window sink: {e}. Falling back to null.");
-                Box::new(mepl_output::NullSink::new(config.width, config.height))
+                Box::new(veha_output::NullSink::new(config.width, config.height))
             }
         },
         #[cfg(feature = "framebuffer")]
-        "framebuffer" => match mepl_output::FramebufferSink::new(0) {
+        "framebuffer" => match veha_output::FramebufferSink::new(0) {
             Ok(s) => Box::new(s),
             Err(e) => {
                 tracing::error!("Failed to open framebuffer: {e}. Falling back to null.");
-                Box::new(mepl_output::NullSink::new(config.width, config.height))
+                Box::new(veha_output::NullSink::new(config.width, config.height))
             }
         },
         // ... rest stays same
@@ -827,7 +827,7 @@ Replace `.expect()` calls with error handling:
 
 **Step 5: Add IPC line length limit**
 
-In `dooh-player/src/ipc.rs`, after line 31 (`let mut line = String::new()`), limit read size:
+In `veha-player/src/ipc.rs`, after line 31 (`let mut line = String::new()`), limit read size:
 
 ```rust
             let mut reader = BufReader::new(reader);
@@ -852,12 +852,12 @@ In `dooh-player/src/ipc.rs`, after line 31 (`let mut line = String::new()`), lim
 
 **Step 6: Build and test**
 
-Run: `cargo build -p dooh-player && cargo test --workspace`
+Run: `cargo build -p veha-player && cargo test --workspace`
 
 **Step 7: Commit**
 
 ```bash
-git add dooh-player/
+git add veha-player/
 git commit -m "fix(player): remove panics, add signal handling, monitor player thread
 
 - Replace all .lock().unwrap() with poison-recovery helper (13 sites)
@@ -871,15 +871,15 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 
 ---
 
-## Task 6: Harden dooh-agent — Backoff Reset, IPC Timeouts, WS Message Limit
+## Task 6: Harden veha-agent — Backoff Reset, IPC Timeouts, WS Message Limit
 
 **Files:**
-- Modify: `dooh-agent/src/ws_client.rs`
-- Modify: `dooh-agent/src/player_client.rs`
+- Modify: `veha-agent/src/ws_client.rs`
+- Modify: `veha-agent/src/player_client.rs`
 
 **Step 1: Fix backoff reset**
 
-In `dooh-agent/src/ws_client.rs`, reset backoff after successful connection (line 26-45):
+In `veha-agent/src/ws_client.rs`, reset backoff after successful connection (line 26-45):
 
 ```rust
 pub async fn run(config: AgentConfig) {
@@ -920,17 +920,17 @@ For a clean reset, change the `run` function to reset on `Ok(())` only, which al
 
 **Step 2: Add timeouts to IPC operations**
 
-In `dooh-agent/src/player_client.rs`, wrap all operations in timeouts:
+In `veha-agent/src/player_client.rs`, wrap all operations in timeouts:
 
 ```rust
-use dooh_core::command::{PlayerCommand, PlayerStatus};
+use veha_core::command::{PlayerCommand, PlayerStatus};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::time::{timeout, Duration};
 
 const IPC_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Send a command to the local dooh-player daemon via its Unix socket.
+/// Send a command to the local veha-player daemon via its Unix socket.
 pub async fn send_command(
     socket_path: &str,
     command: &PlayerCommand,
@@ -958,7 +958,7 @@ pub async fn send_command(
     Ok(response.trim().to_string())
 }
 
-/// Query the local dooh-player for its current status.
+/// Query the local veha-player for its current status.
 pub async fn get_status(
     socket_path: &str,
 ) -> Result<PlayerStatus, Box<dyn std::error::Error + Send + Sync>> {
@@ -970,17 +970,17 @@ pub async fn get_status(
 
 **Step 3: Build and test**
 
-Run: `cargo build -p dooh-agent && cargo test --workspace`
+Run: `cargo build -p veha-agent && cargo test --workspace`
 
 **Step 4: Commit**
 
 ```bash
-git add dooh-agent/
+git add veha-agent/
 git commit -m "fix(agent): reset reconnect backoff, add IPC timeouts
 
 - Reset exponential backoff to 1s after successful WebSocket session
 - Add 5-second timeouts to all Unix socket IPC operations (connect, write, read)
-- Prevents agent hang when dooh-player is unresponsive
+- Prevents agent hang when veha-player is unresponsive
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
@@ -990,19 +990,19 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Task 7: Add API Key Authentication for Agents
 
 **Files:**
-- Modify: `dooh-api/src/ws.rs`
-- Modify: `dooh-api/src/main.rs`
-- Modify: `dooh-api/src/routes.rs`
-- Modify: `dooh-agent/src/ws_client.rs`
-- Modify: `dooh-agent/src/config.rs`
+- Modify: `veha-api/src/ws.rs`
+- Modify: `veha-api/src/main.rs`
+- Modify: `veha-api/src/routes.rs`
+- Modify: `veha-agent/src/ws_client.rs`
+- Modify: `veha-agent/src/config.rs`
 
 **Step 1: Add API key to server config**
 
-In `dooh-api/src/main.rs`, add to Args:
+In `veha-api/src/main.rs`, add to Args:
 
 ```rust
     /// API key for agent authentication (required in production)
-    #[arg(long, env = "MEPL_API_KEY", default_value = "")]
+    #[arg(long, env = "VEHA_API_KEY", default_value = "")]
     api_key: String,
 ```
 
@@ -1066,7 +1066,7 @@ Update `handle_agent_socket` signature to accept `api_key: String` and pass it f
 
 **Step 3: Send API key from agent**
 
-In `dooh-agent/src/ws_client.rs`, update the Register message (line 57-60):
+In `veha-agent/src/ws_client.rs`, update the Register message (line 57-60):
 
 ```rust
     let register_msg = serde_json::to_string(&WsMessage::Register {
@@ -1101,10 +1101,10 @@ Run: `cargo build --workspace && cargo test --workspace`
 **Step 5: Commit**
 
 ```bash
-git add dooh-api/ dooh-agent/
+git add veha-api/ veha-agent/
 git commit -m "feat(api,agent): add API key authentication for agent WebSocket connections
 
-- Server accepts --api-key flag or MEPL_API_KEY env var
+- Server accepts --api-key flag or VEHA_API_KEY env var
 - Agent sends api_key from config during Register handshake
 - Server rejects agents with invalid keys (sends Ack{ok:false})
 - Empty api_key on server = no auth required (backward compatible)
@@ -1117,13 +1117,13 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 ## Task 8: Add Pagination to List Endpoints
 
 **Files:**
-- Modify: `dooh-api/src/routes.rs`
-- Modify: `dooh-api/src/db.rs`
-- Modify: `dooh-api/src/models.rs`
+- Modify: `veha-api/src/routes.rs`
+- Modify: `veha-api/src/db.rs`
+- Modify: `veha-api/src/models.rs`
 
 **Step 1: Add pagination query params model**
 
-Add to `dooh-api/src/models.rs`:
+Add to `veha-api/src/models.rs`:
 
 ```rust
 #[derive(Debug, Clone, Deserialize)]
@@ -1208,7 +1208,7 @@ Run: `cargo build --workspace && cargo test --workspace`
 **Step 5: Commit**
 
 ```bash
-git add dooh-api/
+git add veha-api/
 git commit -m "feat(api): add pagination to all list endpoints
 
 - All list endpoints accept ?page=N&per_page=N query params
@@ -1235,8 +1235,8 @@ Expected: All tests pass.
 
 **Step 3: Check WASM target**
 
-Run: `cargo check -p dooh-web --target wasm32-unknown-unknown`
-Expected: Clean check (dooh-web doesn't depend on modified crates).
+Run: `cargo check -p veha-web --target wasm32-unknown-unknown`
+Expected: Clean check (veha-web doesn't depend on modified crates).
 
 **Step 4: Commit any fix-ups needed**
 
@@ -1248,14 +1248,14 @@ If any tests fail or warnings appear, fix them and commit.
 
 | Task | Crates | Issues Addressed |
 |------|--------|-----------------|
-| 1 | dooh-core | 6 (init panic, overflow, div-by-zero, file limits, error types, atomic writes) |
-| 2 | dooh-api | 7 (db panics, ws panics, ws leak, CORS, graceful shutdown, health, directory errors) |
-| 3 | dooh-api | 3 (streaming upload, streaming download, path traversal) |
-| 4 | dooh-api | 2 (indexes, WAL mode) |
-| 5 | dooh-player | 5 (all unwrap panics, signal handling, thread monitoring, sink creation, IPC limits) |
-| 6 | dooh-agent | 2 (backoff reset, IPC timeouts) |
-| 7 | dooh-api, dooh-agent | 1 (API key auth) |
-| 8 | dooh-api | 1 (pagination) |
+| 1 | veha-core | 6 (init panic, overflow, div-by-zero, file limits, error types, atomic writes) |
+| 2 | veha-api | 7 (db panics, ws panics, ws leak, CORS, graceful shutdown, health, directory errors) |
+| 3 | veha-api | 3 (streaming upload, streaming download, path traversal) |
+| 4 | veha-api | 2 (indexes, WAL mode) |
+| 5 | veha-player | 5 (all unwrap panics, signal handling, thread monitoring, sink creation, IPC limits) |
+| 6 | veha-agent | 2 (backoff reset, IPC timeouts) |
+| 7 | veha-api, veha-agent | 1 (API key auth) |
+| 8 | veha-api | 1 (pagination) |
 | 9 | all | verification |
 | **Total** | | **27 critical+important issues resolved** |
 

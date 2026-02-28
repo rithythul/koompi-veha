@@ -1,16 +1,16 @@
 [workspace]
-members = ["dooh-core", "dooh-output", "dooh-cli", "dooh-player", "dooh-api", "dooh-agent", "dooh-web"]
+members = ["veha-core", "veha-output", "veha-cli", "veha-player", "veha-api", "veha-agent", "veha-web"]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/koompi/koompi-dooh"
+repository = "https://github.com/koompi/koompi-veha"
 
 [workspace.dependencies]
-dooh-core = { path = "dooh-core" }
-dooh-output = { path = "dooh-output" }
+veha-core = { path = "veha-core" }
+veha-output = { path = "veha-output" }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"

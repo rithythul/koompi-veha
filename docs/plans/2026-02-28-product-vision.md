@@ -1,4 +1,4 @@
-# koompi-dooh Product Vision Paper
+# koompi-veha Product Vision Paper
 
 **Date:** 2026-02-28
 **Audience:** Internal team / Engineering
@@ -8,9 +8,9 @@
 
 ## 1. Product Identity
 
-### What mepl Is
+### What veha Is
 
-**mepl** (Media Player) is a distributed digital signage fleet management platform built in Rust. It decodes and renders media on headless display hardware (LED billboards, HDMI screens) via FFmpeg, and provides centralized remote control over fleets of any size through a WebSocket-connected agent architecture.
+**veha** (Media Player) is a distributed digital signage fleet management platform built in Rust. It decodes and renders media on headless display hardware (LED billboards, HDMI screens) via FFmpeg, and provides centralized remote control over fleets of any size through a WebSocket-connected agent architecture.
 
 ### The Problem
 
@@ -26,15 +26,15 @@ Operating a fleet of LED billboards or digital displays involves three hard prob
 
 > A Rust-native media player with direct framebuffer rendering, paired with a lightweight agent-server architecture, can deliver enterprise-grade digital signage fleet management at a fraction of the resource cost and operational complexity of existing solutions.
 
-mepl trades the heavyweight approach (Java/.NET CMS, Chrome/Electron-based players, containerized media servers) for a minimal, purpose-built stack: FFmpeg for decoding, mmap'd framebuffer for output, Unix sockets for local IPC, WebSockets for remote control, and SQLite for state.
+veha trades the heavyweight approach (Java/.NET CMS, Chrome/Electron-based players, containerized media servers) for a minimal, purpose-built stack: FFmpeg for decoding, mmap'd framebuffer for output, Unix sockets for local IPC, WebSockets for remote control, and SQLite for state.
 
 ---
 
 ## 2. Use Cases & Target Markets
 
-### Primary: Digital Out-of-Home (DOOH) Advertising
+### Primary: Digital Out-of-Home (veha) Advertising
 
-The core use case mepl is built for today. An advertising operator manages a network of LED billboards displaying rotating ad content.
+The core use case veha is built for today. An advertising operator manages a network of LED billboards displaying rotating ad content.
 
 **Workflow:**
 - Upload ad creatives (video, images) to the central API server
@@ -44,7 +44,7 @@ The core use case mepl is built for today. An advertising operator manages a net
 - Monitor board health (online/offline, current playback status)
 - Send live commands (pause during emergencies, skip to next ad)
 
-**Why mepl fits:** Direct framebuffer rendering matches LED controller hardware. Low resource footprint means commodity SBCs (Raspberry Pi, Orange Pi, KOOMPI boards) can drive displays. The agent auto-reconnects, so boards work autonomously when network drops.
+**Why veha fits:** Direct framebuffer rendering matches LED controller hardware. Low resource footprint means commodity SBCs (Raspberry Pi, Orange Pi, KOOMPI boards) can drive displays. The agent auto-reconnects, so boards work autonomously when network drops.
 
 ### Secondary: Retail & Hospitality Digital Signage
 
@@ -56,7 +56,7 @@ In-store displays showing promotions, restaurant menu boards, hotel lobby inform
 
 Transit arrival boards, university campus announcements, government public messaging.
 
-**Differentiator:** RTSP/RTMP/HLS live stream support is critical here — displaying a live camera feed alongside announcement slides. mepl already handles this via FFmpeg's stream input support.
+**Differentiator:** RTSP/RTMP/HLS live stream support is critical here — displaying a live camera feed alongside announcement slides. veha already handles this via FFmpeg's stream input support.
 
 ### Future: Interactive & Sensor-Driven Displays
 
@@ -70,15 +70,15 @@ Displays that react to foot traffic, weather data, or audience demographics. Thi
 
 | Component | Status | Maturity |
 |-----------|--------|----------|
-| **dooh-core** (decoder, frames, playlist, player) | Functional | Solid — well-tested, clean Iterator-based API |
-| **dooh-output/window** (minifb desktop) | Functional | Good for development/testing |
-| **dooh-output/framebuffer** (Linux fb0) | Functional | Production-ready for 16/24/32bpp boards |
-| **dooh-output/null** (test sink) | Functional | Complete |
-| **dooh-player** (headless daemon) | Functional | Core loop works; needs resilience hardening |
-| **dooh-agent** (board agent) | Functional | Auto-reconnect works; needs media caching |
-| **dooh-api** (REST + WebSocket server) | Functional | Full CRUD; single-instance only |
-| **dooh-cli** (command-line tool) | Functional | Covers all API operations |
-| **dooh-web** (WASM preview) | Functional | Browser preview only, no FFmpeg |
+| **veha-core** (decoder, frames, playlist, player) | Functional | Solid — well-tested, clean Iterator-based API |
+| **veha-output/window** (minifb desktop) | Functional | Good for development/testing |
+| **veha-output/framebuffer** (Linux fb0) | Functional | Production-ready for 16/24/32bpp boards |
+| **veha-output/null** (test sink) | Functional | Complete |
+| **veha-player** (headless daemon) | Functional | Core loop works; needs resilience hardening |
+| **veha-agent** (board agent) | Functional | Auto-reconnect works; needs media caching |
+| **veha-api** (REST + WebSocket server) | Functional | Full CRUD; single-instance only |
+| **veha-cli** (command-line tool) | Functional | Covers all API operations |
+| **veha-web** (WASM preview) | Functional | Browser preview only, no FFmpeg |
 | **Dashboard** (web UI) | Functional | Vanilla JS, covers core workflows |
 | **Scheduling** | Schema exists | DB schema present, enforcement logic not in agent |
 
@@ -123,7 +123,7 @@ Displays that react to foot traffic, weather data, or audience demographics. Thi
 
 ### Existing Solutions
 
-| Product | Model | Strengths | Weaknesses vs. mepl |
+| Product | Model | Strengths | Weaknesses vs. veha |
 |---------|-------|-----------|---------------------|
 | **Xibo** | Open source (PHP/Java) | Mature CMS, large community, layout designer | Heavyweight (requires Docker, Spring Boot); player is C#/.NET on Windows or Android-dependent |
 | **Screenly** | Commercial + OSS (Python) | Easy Raspberry Pi deployment, cloud management | Chromium-based player (web content only, high resource usage); per-screen pricing |
@@ -132,15 +132,15 @@ Displays that react to foot traffic, weather data, or audience demographics. Thi
 | **Rise Vision** | SaaS (Chrome) | Easy to start, runs in ChromeOS/Chrome | Requires Chrome browser, no framebuffer mode, SaaS dependency |
 | **Yodeck** | SaaS + RPi | Low entry cost, Pi-based | SaaS lock-in, limited offline capability, Chromium player |
 
-### Where mepl Fits
+### Where veha Fits
 
-mepl occupies a space that currently has no direct occupant:
+veha occupies a space that currently has no direct occupant:
 
 ```
                         Resource usage
                    Low ◄────────────────► High
                     │                      │
-  Self-hosted   ────┤  ★ mepl             │
+  Self-hosted   ────┤  ★ veha             │
                     │                      │  Xibo
                     │                      │
                     │  Screenly OSS        │
@@ -154,7 +154,7 @@ mepl occupies a space that currently has no direct occupant:
                     │                      │
 ```
 
-**mepl's unique position:** Self-hosted, low-resource, framebuffer-native, Rust-native. No existing solution offers this combination. The closest competitor is Screenly OSS, but it uses Chromium for rendering (order-of-magnitude more resources, no direct framebuffer support).
+**veha's unique position:** Self-hosted, low-resource, framebuffer-native, Rust-native. No existing solution offers this combination. The closest competitor is Screenly OSS, but it uses Chromium for rendering (order-of-magnitude more resources, no direct framebuffer support).
 
 ---
 
@@ -162,16 +162,16 @@ mepl occupies a space that currently has no direct occupant:
 
 ### 1. Framebuffer-Native Rendering
 
-Most digital signage players render content through a browser engine (Chromium) or a GUI toolkit. mepl writes directly to `/dev/fb0` via memory-mapped I/O. This means:
+Most digital signage players render content through a browser engine (Chromium) or a GUI toolkit. veha writes directly to `/dev/fb0` via memory-mapped I/O. This means:
 
-- **No X11/Wayland required.** The board boots to a bare Linux kernel + dooh-player. No display server, no compositor, no desktop environment.
+- **No X11/Wayland required.** The board boots to a bare Linux kernel + veha-player. No display server, no compositor, no desktop environment.
 - **Predictable latency.** Frame delivery is a memcpy to a mapped file descriptor. No compositor vsync, no GPU context switching.
 - **Minimal attack surface.** No browser engine = no JavaScript execution = no web-based vulnerabilities on the display hardware.
 - **Resource footprint.** Player daemon: ~20MB RSS for 1080p playback. Compare to Chromium-based: 200-500MB.
 
 ### 2. Rust Memory Safety Without GC Overhead
 
-Rust's ownership model gives mepl two guarantees simultaneously:
+Rust's ownership model gives veha two guarantees simultaneously:
 - **No memory leaks** in long-running daemon processes (billboards run 24/7 for months)
 - **No GC pauses** during frame delivery (critical for smooth video on LED panels where frame drops are visible as flicker)
 
@@ -181,7 +181,7 @@ By wrapping FFmpeg rather than reimplementing codecs or depending on browser cod
 - Supports every major video/image format (H.264, H.265, VP9, AV1, MJPEG, PNG, JPEG, WebP, etc.)
 - Supports network streams (RTSP, RTMP, HLS, HTTP) for live content
 - Hardware acceleration (VA-API, NVDEC) available through FFmpeg's existing abstraction
-- Codec support evolves with FFmpeg updates, not mepl releases
+- Codec support evolves with FFmpeg updates, not veha releases
 
 ### 4. Agent Architecture with Process Isolation
 
@@ -306,11 +306,11 @@ These must be resolved before deploying to paying customers.
 
 | # | Feature | Crates Affected | Depends On |
 |---|---------|----------------|------------|
-| 1 | **API authentication (JWT + API key)** | dooh-api, dooh-agent, dooh-cli | — |
-| 2 | **Agent media caching** | dooh-agent, dooh-api (add content hash to media/playlist API) | — |
-| 3 | **Schedule enforcement in agent** | dooh-agent | — |
-| 4 | **Player error recovery** (skip bad frames, retry streams) | dooh-core, dooh-player | — |
-| 5 | **TLS/HTTPS support** | dooh-api (reverse proxy config), dooh-agent (wss://) | #1 |
+| 1 | **API authentication (JWT + API key)** | veha-api, veha-agent, veha-cli | — |
+| 2 | **Agent media caching** | veha-agent, veha-api (add content hash to media/playlist API) | — |
+| 3 | **Schedule enforcement in agent** | veha-agent | — |
+| 4 | **Player error recovery** (skip bad frames, retry streams) | veha-core, veha-player | — |
+| 5 | **TLS/HTTPS support** | veha-api (reverse proxy config), veha-agent (wss://) | #1 |
 
 ### Tier 2: Operational Necessities
 
@@ -318,11 +318,11 @@ Required for operating a fleet with confidence.
 
 | # | Feature | Crates Affected | Depends On |
 |---|---------|----------------|------------|
-| 6 | **Agent watchdog for player process** | dooh-agent | — |
-| 7 | **Proof-of-play logging** | dooh-player, dooh-agent, dooh-api | #3 |
-| 8 | **Fleet health dashboard** (live status via WebSocket) | dooh-api (static/), ws.rs | — |
-| 9 | **Content integrity verification** (SHA256 checksums) | dooh-api, dooh-agent | #2 |
-| 10 | **Audit logging** (who changed what) | dooh-api | #1 |
+| 6 | **Agent watchdog for player process** | veha-agent | — |
+| 7 | **Proof-of-play logging** | veha-player, veha-agent, veha-api | #3 |
+| 8 | **Fleet health dashboard** (live status via WebSocket) | veha-api (static/), ws.rs | — |
+| 9 | **Content integrity verification** (SHA256 checksums) | veha-api, veha-agent | #2 |
+| 10 | **Audit logging** (who changed what) | veha-api | #1 |
 
 ### Tier 3: Scale & Polish
 
@@ -330,12 +330,12 @@ For growing beyond initial deployment.
 
 | # | Feature | Crates Affected | Depends On |
 |---|---------|----------------|------------|
-| 11 | **OTA agent/player update mechanism** | dooh-agent (new), dooh-api | #1 |
-| 12 | **PostgreSQL support** (as alternative to SQLite) | dooh-api | — |
-| 13 | **S3-compatible media storage** | dooh-api | — |
-| 14 | **Multi-tenant API** | dooh-api | #1, #12 |
-| 15 | **Hardware acceleration** (VA-API/NVDEC) | dooh-core | — |
-| 16 | **Content preview in dashboard** (use dooh-web) | dooh-web, dooh-api (static/) | — |
+| 11 | **OTA agent/player update mechanism** | veha-agent (new), veha-api | #1 |
+| 12 | **PostgreSQL support** (as alternative to SQLite) | veha-api | — |
+| 13 | **S3-compatible media storage** | veha-api | — |
+| 14 | **Multi-tenant API** | veha-api | #1, #12 |
+| 15 | **Hardware acceleration** (VA-API/NVDEC) | veha-core | — |
+| 16 | **Content preview in dashboard** (use veha-web) | veha-web, veha-api (static/) | — |
 
 ### Tier 4: Differentiation
 
@@ -402,20 +402,20 @@ Features that create competitive distance.
 
 ## 9. Summary
 
-### What mepl is today
+### What veha is today
 
 A functional, well-architected Rust media player with a distributed fleet management system. The core playback pipeline (FFmpeg → RGB24 → framebuffer) is solid. The agent-server orchestration works. The web dashboard, CLI, and WASM preview provide three distinct user interfaces. The codebase is clean, tested, and modular.
 
-### What mepl needs to become
+### What veha needs to become
 
 A production-hardened platform with authentication, caching, schedule enforcement, and error recovery — the "Phase 1" work that turns a functional prototype into a deployable product. These are engineering problems with known solutions; the architecture already supports them.
 
-### Why mepl matters
+### Why veha matters
 
-The digital signage market is dominated by two extremes: cheap, unreliable solutions (USB sticks and consumer media players) and expensive enterprise platforms (Scala, four-wall). mepl targets the middle: a self-hosted, high-performance, fleet-managed platform that runs on commodity hardware. The Rust foundation gives it a performance and reliability advantage that's difficult to replicate in the Node/Python/Java ecosystem. The framebuffer-native rendering is a genuine differentiation — no other open-source solution does this.
+The digital signage market is dominated by two extremes: cheap, unreliable solutions (USB sticks and consumer media players) and expensive enterprise platforms (Scala, four-wall). veha targets the middle: a self-hosted, high-performance, fleet-managed platform that runs on commodity hardware. The Rust foundation gives it a performance and reliability advantage that's difficult to replicate in the Node/Python/Java ecosystem. The framebuffer-native rendering is a genuine differentiation — no other open-source solution does this.
 
-The moat is operational simplicity: `dooh-player` + `dooh-agent` on a minimal Linux image, pointed at a central API server. That's the entire board-side deployment. Everything else — media, playlists, schedules, commands — flows over a single WebSocket connection.
+The moat is operational simplicity: `veha-player` + `veha-agent` on a minimal Linux image, pointed at a central API server. That's the entire board-side deployment. Everything else — media, playlists, schedules, commands — flows over a single WebSocket connection.
 
 ---
 
-*This document reflects the state of the koompi-dooh codebase as of commit `49629fc` on the `main` branch.*
+*This document reflects the state of the koompi-veha codebase as of commit `49629fc` on the `main` branch.*
