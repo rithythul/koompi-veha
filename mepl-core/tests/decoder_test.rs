@@ -1,10 +1,12 @@
 use mepl_core::{Decoder, VideoFrame};
 
+const TEST_VIDEO: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.mp4");
+
 #[test]
 fn test_decode_test_video() {
     mepl_core::init();
 
-    let decoder = Decoder::open_native("tests/fixtures/test.mp4").unwrap();
+    let decoder = Decoder::open_native(TEST_VIDEO).unwrap();
     let (w, h) = decoder.target_resolution();
     assert_eq!(w, 320);
     assert_eq!(h, 240);
@@ -19,14 +21,13 @@ fn test_decode_test_video() {
     }
 
     assert!(frame_count > 0, "Should have decoded at least one frame");
-    println!("Decoded {frame_count} frames");
 }
 
 #[test]
 fn test_decode_with_scaling() {
     mepl_core::init();
 
-    let decoder = Decoder::open("tests/fixtures/test.mp4", 160, 120).unwrap();
+    let decoder = Decoder::open(TEST_VIDEO, 160, 120).unwrap();
     let (w, h) = decoder.target_resolution();
     assert_eq!(w, 160);
     assert_eq!(h, 120);
@@ -46,11 +47,23 @@ fn test_decode_with_scaling() {
 #[test]
 fn test_frame_to_argb() {
     let mut frame = VideoFrame::new(2, 2);
-    // Set pixel (0,0) to red: R=255, G=0, B=0
-    frame.data[0] = 255;
-    frame.data[1] = 0;
-    frame.data[2] = 0;
+    frame.data[0] = 255; // R
+    frame.data[1] = 0;   // G
+    frame.data[2] = 0;   // B
 
     let argb = frame.to_argb_u32();
     assert_eq!(argb[0], 0x00FF0000); // Red in ARGB
+}
+
+#[test]
+fn test_timestamp_secs() {
+    let mut frame = VideoFrame::new(1, 1);
+    frame.pts = Some(90);
+    frame.time_base = (1, 30);
+    let ts = frame.timestamp_secs().unwrap();
+    assert!((ts - 3.0).abs() < 0.001);
+
+    // No PTS
+    frame.pts = None;
+    assert!(frame.timestamp_secs().is_none());
 }

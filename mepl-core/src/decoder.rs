@@ -4,7 +4,7 @@ use ffmpeg_next::software::scaling::{context::Context as ScalerContext, flag::Fl
 use ffmpeg_next::util::frame::video::Video;
 
 use crate::error::Error;
-use crate::frame::VideoFrame;
+use crate::frame::{self, VideoFrame};
 use crate::Result;
 
 /// Decodes video frames from a media source.
@@ -16,6 +16,7 @@ pub struct Decoder {
     time_base: (i32, i32),
     target_width: u32,
     target_height: u32,
+    eof_sent: bool,
 }
 
 impl Decoder {
@@ -53,6 +54,7 @@ impl Decoder {
             time_base: (time_base.numerator(), time_base.denominator()),
             target_width,
             target_height,
+            eof_sent: false,
         })
     }
 
@@ -86,27 +88,20 @@ impl Decoder {
     }
 
     pub fn frame_rate(&self) -> Option<f64> {
-        let rate = self.decoder.frame_rate();
-        rate.map(|r| r.numerator() as f64 / r.denominator() as f64)
+        self.decoder.frame_rate().and_then(|r| {
+            if r.denominator() == 0 {
+                None
+            } else {
+                Some(r.numerator() as f64 / r.denominator() as f64)
+            }
+        })
     }
 
     fn ffmpeg_frame_to_video_frame(&self, rgb: &Video, original: &Video) -> VideoFrame {
-        let width = rgb.width();
-        let height = rgb.height();
-        let stride = rgb.stride(0);
-        let pixel_width = (width * 3) as usize;
-
-        let mut data = Vec::with_capacity((width * height * 3) as usize);
-        for y in 0..height as usize {
-            let row_start = y * stride;
-            let row_end = row_start + pixel_width;
-            data.extend_from_slice(&rgb.data(0)[row_start..row_end]);
-        }
-
         VideoFrame {
-            data,
-            width,
-            height,
+            data: frame::extract_rgb24_data(rgb),
+            width: rgb.width(),
+            height: rgb.height(),
             pts: original.pts(),
             time_base: self.time_base,
         }
@@ -142,7 +137,10 @@ impl Iterator for Decoder {
             }
 
             if !found_packet {
-                let _ = self.decoder.send_eof();
+                if !self.eof_sent {
+                    let _ = self.decoder.send_eof();
+                    self.eof_sent = true;
+                }
                 if self.decoder.receive_frame(&mut decoded).is_ok() {
                     if let Err(e) = self.scaler.run(&decoded, &mut rgb_frame) {
                         return Some(Err(e.into()));

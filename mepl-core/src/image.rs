@@ -6,7 +6,7 @@ use ffmpeg_next::software::scaling::{context::Context as ScalerContext, flag::Fl
 use ffmpeg_next::util::frame::video::Video;
 
 use crate::error::Error;
-use crate::frame::VideoFrame;
+use crate::frame::{self, VideoFrame};
 use crate::Result;
 
 /// Decode a single image file into a VideoFrame.
@@ -41,22 +41,10 @@ pub fn decode_image(path: &str, target_width: u32, target_height: u32) -> Result
                 let mut rgb_frame = Video::empty();
                 scaler.run(&decoded, &mut rgb_frame)?;
 
-                let width = rgb_frame.width();
-                let height = rgb_frame.height();
-                let stride = rgb_frame.stride(0);
-                let pixel_width = (width * 3) as usize;
-
-                let mut data = Vec::with_capacity((width * height * 3) as usize);
-                for y in 0..height as usize {
-                    let row_start = y * stride;
-                    let row_end = row_start + pixel_width;
-                    data.extend_from_slice(&rgb_frame.data(0)[row_start..row_end]);
-                }
-
                 return Ok(VideoFrame {
-                    data,
-                    width,
-                    height,
+                    data: frame::extract_rgb24_data(&rgb_frame),
+                    width: rgb_frame.width(),
+                    height: rgb_frame.height(),
                     pts: None,
                     time_base: (1, 1),
                 });

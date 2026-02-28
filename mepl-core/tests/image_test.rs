@@ -1,10 +1,12 @@
 use mepl_core::image::{decode_image, is_image_path};
 
+const TEST_IMAGE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/test.png");
+
 #[test]
 fn test_decode_image() {
     mepl_core::init();
 
-    let frame = decode_image("tests/fixtures/test.png", 320, 240).unwrap();
+    let frame = decode_image(TEST_IMAGE, 320, 240).unwrap();
     assert_eq!(frame.width, 320);
     assert_eq!(frame.height, 240);
     assert_eq!(frame.data.len(), (320 * 240 * 3) as usize);
@@ -14,7 +16,7 @@ fn test_decode_image() {
 fn test_decode_image_with_scaling() {
     mepl_core::init();
 
-    let frame = decode_image("tests/fixtures/test.png", 160, 120).unwrap();
+    let frame = decode_image(TEST_IMAGE, 160, 120).unwrap();
     assert_eq!(frame.width, 160);
     assert_eq!(frame.height, 120);
 }

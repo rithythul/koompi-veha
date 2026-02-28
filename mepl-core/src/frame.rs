@@ -1,5 +1,23 @@
+use ffmpeg_next::util::frame::video::Video;
+
+/// Extract RGB24 pixel data from an FFmpeg frame, handling stride correctly.
+pub(crate) fn extract_rgb24_data(rgb: &Video) -> Vec<u8> {
+    let width = rgb.width();
+    let height = rgb.height();
+    let stride = rgb.stride(0);
+    let pixel_width = (width * 3) as usize;
+
+    let mut data = Vec::with_capacity((width * height * 3) as usize);
+    for y in 0..height as usize {
+        let row_start = y * stride;
+        let row_end = row_start + pixel_width;
+        data.extend_from_slice(&rgb.data(0)[row_start..row_end]);
+    }
+    data
+}
+
 /// A decoded video frame in RGB24 format (3 bytes per pixel).
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VideoFrame {
     pub data: Vec<u8>,
     pub width: u32,
