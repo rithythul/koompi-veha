@@ -7,6 +7,7 @@ use axum::{
     response::IntoResponse,
     routing::{delete, get, post},
 };
+use tokio::io::AsyncWriteExt;
 use tower_http::services::ServeDir;
 use uuid::Uuid;
 
@@ -194,6 +195,9 @@ async fn list_media(State(state): State<AppState>) -> impl IntoResponse {
     }
 }
 
+/// Maximum upload size: 2GB
+const MAX_UPLOAD_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+
 async fn upload_media(
     State(state): State<AppState>,
     mut multipart: Multipart,
@@ -216,7 +220,6 @@ async fn upload_media(
                 mime = ct.to_string();
             }
 
-            // Generate a unique filename to avoid collisions.
             let ext = original_name
                 .rsplit('.')
                 .next()
@@ -224,18 +227,47 @@ async fn upload_media(
             filename = format!("{}.{}", id, ext);
 
             let dest = PathBuf::from(&state.media_dir).join(&filename);
-            let data = match field.bytes().await {
-                Ok(d) => d,
+
+            // Stream directly to file instead of loading into memory
+            let mut file = match tokio::fs::File::create(&dest).await {
+                Ok(f) => f,
                 Err(e) => {
-                    tracing::error!("upload read error: {}", e);
-                    return StatusCode::BAD_REQUEST.into_response();
+                    tracing::error!("upload create file error: {}", e);
+                    return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                 }
             };
-            size = data.len() as i64;
-            if let Err(e) = tokio::fs::write(&dest, &data).await {
-                tracing::error!("upload write error: {}", e);
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+
+            let mut total_bytes: u64 = 0;
+            let mut stream = field;
+
+            loop {
+                match stream.chunk().await {
+                    Ok(Some(chunk)) => {
+                        total_bytes += chunk.len() as u64;
+                        if total_bytes > MAX_UPLOAD_SIZE {
+                            // Clean up partial file
+                            drop(file);
+                            let _ = tokio::fs::remove_file(&dest).await;
+                            return (StatusCode::PAYLOAD_TOO_LARGE, "File exceeds 2GB limit").into_response();
+                        }
+                        if let Err(e) = file.write_all(&chunk).await {
+                            tracing::error!("upload write error: {}", e);
+                            drop(file);
+                            let _ = tokio::fs::remove_file(&dest).await;
+                            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                        }
+                    }
+                    Ok(None) => break,  // End of field
+                    Err(e) => {
+                        tracing::error!("upload read error: {}", e);
+                        drop(file);
+                        let _ = tokio::fs::remove_file(&dest).await;
+                        return StatusCode::BAD_REQUEST.into_response();
+                    }
+                }
             }
+
+            size = total_bytes as i64;
         }
     }
 
@@ -249,12 +281,11 @@ async fn upload_media(
         filename,
         mime_type: mime,
         size,
-        uploaded_at: String::new(), // DB default
+        uploaded_at: String::new(),
     };
 
     match db::insert_media(&state.db, &media).await {
         Ok(()) => {
-            // Re-fetch to get the DB-generated uploaded_at
             match db::get_media(&state.db, &id).await {
                 Ok(Some(m)) => (StatusCode::CREATED, Json(m)).into_response(),
                 _ => StatusCode::CREATED.into_response(),
@@ -281,22 +312,42 @@ async fn download_media(
     };
 
     let path = PathBuf::from(&state.media_dir).join(&media.filename);
-    match tokio::fs::read(&path).await {
-        Ok(data) => {
-            let headers = [
-                (
-                    axum::http::header::CONTENT_TYPE,
-                    media.mime_type.clone(),
-                ),
-                (
-                    axum::http::header::CONTENT_DISPOSITION,
-                    format!("attachment; filename=\"{}\"", media.name),
-                ),
-            ];
-            (headers, data).into_response()
+
+    // Validate path stays within media_dir
+    match path.canonicalize() {
+        Ok(canonical) => {
+            let media_dir = match PathBuf::from(&state.media_dir).canonicalize() {
+                Ok(d) => d,
+                Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            };
+            if !canonical.starts_with(&media_dir) {
+                tracing::error!("Path traversal attempt: {:?}", path);
+                return StatusCode::FORBIDDEN.into_response();
+            }
         }
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
     }
+
+    let file = match tokio::fs::File::open(&path).await {
+        Ok(f) => f,
+        Err(_) => return StatusCode::NOT_FOUND.into_response(),
+    };
+
+    let stream = tokio_util::io::ReaderStream::new(file);
+    let body = axum::body::Body::from_stream(stream);
+
+    let headers = [
+        (
+            axum::http::header::CONTENT_TYPE,
+            media.mime_type.clone(),
+        ),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"{}\"", media.name),
+        ),
+    ];
+
+    (headers, body).into_response()
 }
 
 async fn delete_media(
