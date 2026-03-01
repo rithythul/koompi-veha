@@ -1,16 +1,21 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Play, Pause, Square, SkipForward, SkipBack, RotateCcw, Monitor } from 'lucide-react'
-import { useBoard, useSendBoardCommand, useBoardResolvedSchedule } from '../api/boards'
+import { ArrowLeft, Play, Pause, Square, SkipForward, SkipBack, RotateCcw, Monitor, Pencil } from 'lucide-react'
+import { useBoard, useUpdateBoard, useSendBoardCommand, useBoardResolvedSchedule } from '../api/boards'
 import { usePlayLogs } from '../api/playlogs'
 import { useZones } from '../api/zones'
 import { useGroups } from '../api/groups'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
+import { Modal } from '../components/ui/Modal'
+import { Input } from '../components/ui/Input'
+import { Select } from '../components/ui/Select'
 import { PageSpinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/Toast'
 import { formatRelativeTime, formatDateTime, formatDuration } from '../lib/utils'
-import type { PlayerCommand } from '../types/api'
+import { SELL_MODES } from '../lib/constants'
+import type { PlayerCommand, UpdateBoard } from '../types/api'
 
 export default function BoardDetail() {
   const { id } = useParams<{ id: string }>()
@@ -21,12 +26,17 @@ export default function BoardDetail() {
   const { data: zones } = useZones()
   const { data: groupsData } = useGroups({ per_page: 200 })
   const sendCommand = useSendBoardCommand(id ?? '')
+  const updateBoard = useUpdateBoard(id ?? '')
   const toast = useToast()
+  const [showEdit, setShowEdit] = useState(false)
+  const [editData, setEditData] = useState<UpdateBoard>({})
 
   if (isLoading || !board) return <PageSpinner />
 
-  const zoneName = zones?.find((z) => z.id === board.zone_id)?.name ?? '--'
-  const groupName = groupsData?.data?.find((g) => g.id === board.group_id)?.name ?? '--'
+  const zoneList = zones ?? []
+  const groupList = groupsData?.data ?? []
+  const zoneName = zoneList.find((z) => z.id === board.zone_id)?.name ?? '--'
+  const groupName = groupList.find((g) => g.id === board.group_id)?.name ?? '--'
   const isOnline = board.status === 'online'
   const logs = logsData?.data ?? []
   const resolvedItems = schedule?.items ?? []
@@ -34,6 +44,32 @@ export default function BoardDetail() {
   const handleCommand = (command: PlayerCommand) => {
     sendCommand.mutate(command, {
       onSuccess: () => toast.success(`Command sent: ${command.type}`),
+      onError: (err) => toast.error(err.message),
+    })
+  }
+
+  const openEdit = () => {
+    setEditData({
+      name: board.name,
+      zone_id: board.zone_id,
+      group_id: board.group_id,
+      address: board.address,
+      sell_mode: board.sell_mode ?? '',
+      orientation: board.orientation ?? '',
+      operating_hours_start: board.operating_hours_start,
+      operating_hours_end: board.operating_hours_end,
+      latitude: board.latitude,
+      longitude: board.longitude,
+    })
+    setShowEdit(true)
+  }
+
+  const handleSaveBoard = () => {
+    updateBoard.mutate(editData, {
+      onSuccess: () => {
+        toast.success('Board updated')
+        setShowEdit(false)
+      },
       onError: (err) => toast.error(err.message),
     })
   }
@@ -70,6 +106,9 @@ export default function BoardDetail() {
         <Badge variant={isOnline ? 'online' : 'offline'} dot className="ml-2">
           {board.status}
         </Badge>
+        <Button variant="secondary" size="sm" onClick={openEdit} className="ml-auto">
+          <Pencil className="w-3.5 h-3.5" /> Edit
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -192,6 +231,91 @@ export default function BoardDetail() {
           </Card>
         </div>
       </div>
+
+      {/* Edit Board Modal */}
+      <Modal
+        open={showEdit}
+        onClose={() => setShowEdit(false)}
+        title="Edit Board"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowEdit(false)}>Cancel</Button>
+            <Button onClick={handleSaveBoard} loading={updateBoard.isPending}>Save</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Name"
+            value={editData.name ?? ''}
+            onChange={(e) => setEditData({ ...editData, name: e.target.value })}
+          />
+          <Select
+            label="Zone"
+            value={editData.zone_id ?? ''}
+            onChange={(e) => setEditData({ ...editData, zone_id: e.target.value || null })}
+            options={zoneList.map((z) => ({ value: z.id, label: z.name }))}
+            placeholder="No zone"
+          />
+          <Select
+            label="Group"
+            value={editData.group_id ?? ''}
+            onChange={(e) => setEditData({ ...editData, group_id: e.target.value || null })}
+            options={groupList.map((g) => ({ value: g.id, label: g.name }))}
+            placeholder="No group"
+          />
+          <Input
+            label="Address"
+            value={editData.address ?? ''}
+            onChange={(e) => setEditData({ ...editData, address: e.target.value || null })}
+          />
+          <Select
+            label="Sell Mode"
+            value={editData.sell_mode ?? ''}
+            onChange={(e) => setEditData({ ...editData, sell_mode: e.target.value })}
+            options={SELL_MODES.map((s) => ({ value: s.value, label: s.label }))}
+            placeholder="Select mode"
+          />
+          <Select
+            label="Orientation"
+            value={editData.orientation ?? ''}
+            onChange={(e) => setEditData({ ...editData, orientation: e.target.value })}
+            options={[
+              { value: 'landscape', label: 'Landscape' },
+              { value: 'portrait', label: 'Portrait' },
+            ]}
+            placeholder="Select orientation"
+          />
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Latitude"
+              type="number"
+              value={editData.latitude ?? ''}
+              onChange={(e) => setEditData({ ...editData, latitude: e.target.value ? parseFloat(e.target.value) : null })}
+            />
+            <Input
+              label="Longitude"
+              type="number"
+              value={editData.longitude ?? ''}
+              onChange={(e) => setEditData({ ...editData, longitude: e.target.value ? parseFloat(e.target.value) : null })}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Operating Start"
+              type="time"
+              value={editData.operating_hours_start ?? ''}
+              onChange={(e) => setEditData({ ...editData, operating_hours_start: e.target.value || null })}
+            />
+            <Input
+              label="Operating End"
+              type="time"
+              value={editData.operating_hours_end ?? ''}
+              onChange={(e) => setEditData({ ...editData, operating_hours_end: e.target.value || null })}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -34,7 +34,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/boards/{id}/command", post(send_board_command))
         // Groups
         .route("/api/groups", get(list_groups).post(create_group))
-        .route("/api/groups/{id}", delete(delete_group))
+        .route("/api/groups/{id}", put(update_group_handler).delete(delete_group))
         .route("/api/groups/{id}/command", post(send_group_command))
         // Media
         .route("/api/media", get(list_media).post(upload_media))
@@ -322,6 +322,23 @@ async fn create_group(
         Ok(group) => (StatusCode::CREATED, Json(group)).into_response(),
         Err(e) => {
             tracing::error!("create_group: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn update_group_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<CreateGroup>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    match db::update_group(&state.db, &id, &input).await {
+        Ok(Some(group)) => Json(group).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update_group: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

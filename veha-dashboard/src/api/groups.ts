@@ -25,6 +25,18 @@ export function useCreateGroup() {
   })
 }
 
+export function useUpdateGroup(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: CreateGroup) =>
+      apiClient<Group>(`/api/groups/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
+  })
+}
+
 export function useDeleteGroup() {
   const qc = useQueryClient()
   return useMutation({

@@ -283,6 +283,18 @@ pub async fn create_group(pool: &SqlitePool, input: &CreateGroup) -> Result<Grou
         .ok_or_else(|| sqlx::Error::RowNotFound)
 }
 
+pub async fn update_group(pool: &SqlitePool, id: &str, input: &CreateGroup) -> Result<Option<Group>, sqlx::Error> {
+    let result = sqlx::query("UPDATE groups SET name = ? WHERE id = ?")
+        .bind(&input.name)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Ok(None);
+    }
+    get_group(pool, id).await
+}
+
 pub async fn delete_group(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
     let result = sqlx::query("DELETE FROM groups WHERE id = ?")
         .bind(id)

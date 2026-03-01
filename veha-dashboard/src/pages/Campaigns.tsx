@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Megaphone, Plus, LayoutGrid, Table2 } from 'lucide-react'
-import { useCampaigns, useCreateCampaign } from '../api/campaigns'
+import { Megaphone, Plus, Pencil, LayoutGrid, Table2 } from 'lucide-react'
+import { useCampaigns, useCreateCampaign, useUpdateCampaign } from '../api/campaigns'
 import { useAdvertisers } from '../api/advertisers'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
@@ -27,6 +27,7 @@ export default function Campaigns() {
   const { data, isLoading } = useCampaigns({ per_page: 200 })
   const { data: advData } = useAdvertisers({ per_page: 200 })
   const [showForm, setShowForm] = useState(false)
+  const [editItem, setEditItem] = useState<Campaign | null>(null)
   const [formData, setFormData] = useState<CreateCampaign>({
     advertiser_id: '',
     name: '',
@@ -34,6 +35,7 @@ export default function Campaigns() {
     end_date: '',
   })
   const createCampaign = useCreateCampaign()
+  const updateCampaign = useUpdateCampaign(editItem?.id ?? '')
   const toast = useToast()
 
   if (isLoading) return <PageSpinner />
@@ -49,6 +51,7 @@ export default function Campaigns() {
   }
 
   const openCreate = () => {
+    setEditItem(null)
     setFormData({
       advertiser_id: advertisers[0]?.id ?? '',
       name: '',
@@ -58,11 +61,25 @@ export default function Campaigns() {
     setShowForm(true)
   }
 
-  const handleCreate = () => {
-    createCampaign.mutate(formData, {
+  const openEdit = (c: Campaign) => {
+    setEditItem(c)
+    setFormData({
+      advertiser_id: c.advertiser_id,
+      name: c.name,
+      start_date: c.start_date,
+      end_date: c.end_date,
+      notes: c.notes ?? undefined,
+    })
+    setShowForm(true)
+  }
+
+  const handleSave = () => {
+    const mutation = editItem ? updateCampaign : createCampaign
+    mutation.mutate(formData, {
       onSuccess: () => {
-        toast.success('Campaign created')
+        toast.success(editItem ? 'Campaign updated' : 'Campaign created')
         setShowForm(false)
+        setEditItem(null)
       },
       onError: (err) => toast.error(err.message),
     })
@@ -145,6 +162,7 @@ export default function Campaigns() {
                 <th className="px-4 py-3">Advertiser</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Dates</th>
+                <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="text-sm">
@@ -162,6 +180,15 @@ export default function Campaigns() {
                   <td className="px-4 py-3 text-text-secondary text-xs">
                     {formatDate(c.start_date)} - {formatDate(c.end_date)}
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); openEdit(c) }}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -171,13 +198,13 @@ export default function Campaigns() {
 
       <Modal
         open={showForm}
-        onClose={() => setShowForm(false)}
-        title="New Campaign"
+        onClose={() => { setShowForm(false); setEditItem(null) }}
+        title={editItem ? 'Edit Campaign' : 'New Campaign'}
         footer={
           <>
-            <Button variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button onClick={handleCreate} loading={createCampaign.isPending} disabled={!formData.name.trim()}>
-              Create
+            <Button variant="secondary" onClick={() => { setShowForm(false); setEditItem(null) }}>Cancel</Button>
+            <Button onClick={handleSave} loading={editItem ? updateCampaign.isPending : createCampaign.isPending} disabled={!formData.name.trim()}>
+              {editItem ? 'Save' : 'Create'}
             </Button>
           </>
         }

@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { FolderOpen, Plus, Trash2 } from 'lucide-react'
-import { useGroups, useCreateGroup, useDeleteGroup } from '../api/groups'
+import { FolderOpen, Plus, Pencil, Trash2 } from 'lucide-react'
+import { useGroups, useCreateGroup, useUpdateGroup, useDeleteGroup } from '../api/groups'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Modal } from '../components/ui/Modal'
@@ -16,10 +16,12 @@ export default function Groups() {
   const [page, setPage] = useState(1)
   const { data, isLoading } = useGroups({ page, per_page: 50 })
   const [showForm, setShowForm] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const createGroup = useCreateGroup()
+  const updateGroup = useUpdateGroup(editId ?? '')
   const deleteGroup = useDeleteGroup()
   const toast = useToast()
 
@@ -28,11 +30,19 @@ export default function Groups() {
   const groups = data?.data ?? []
   const totalPages = Math.ceil((data?.total ?? 0) / (data?.per_page ?? 50))
 
-  const handleCreate = () => {
-    createGroup.mutate({ name }, {
+  const openEdit = (group: { id: string; name: string }) => {
+    setEditId(group.id)
+    setName(group.name)
+    setShowForm(true)
+  }
+
+  const handleSave = () => {
+    const mutation = editId ? updateGroup : createGroup
+    mutation.mutate({ name }, {
       onSuccess: () => {
-        toast.success('Group created')
+        toast.success(editId ? 'Group updated' : 'Group created')
         setShowForm(false)
+        setEditId(null)
         setName('')
       },
       onError: (err) => toast.error(err.message),
@@ -54,7 +64,7 @@ export default function Groups() {
     <div className="animate-fade-in">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-semibold text-text-primary">Groups</h1>
-        <Button onClick={() => { setName(''); setShowForm(true) }} size="sm">
+        <Button onClick={() => { setEditId(null); setName(''); setShowForm(true) }} size="sm">
           <Plus className="w-4 h-4" /> New Group
         </Button>
       </div>
@@ -64,7 +74,7 @@ export default function Groups() {
           icon={FolderOpen}
           title="No groups"
           description="Groups let you organize boards and send commands to multiple boards at once."
-          action={{ label: 'New Group', onClick: () => setShowForm(true) }}
+          action={{ label: 'New Group', onClick: () => { setEditId(null); setName(''); setShowForm(true) } }}
         />
       ) : (
         <Card padding={false}>
@@ -82,9 +92,14 @@ export default function Groups() {
                   <td className="px-4 py-3 text-text-primary font-medium">{group.name}</td>
                   <td className="px-4 py-3 text-text-secondary">{formatDate(group.created_at)}</td>
                   <td className="px-4 py-3 text-right">
-                    <Button variant="ghost" size="sm" onClick={() => setDeleteId(group.id)}>
-                      <Trash2 className="w-3.5 h-3.5 text-status-error" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(group)}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteId(group.id)}>
+                        <Trash2 className="w-3.5 h-3.5 text-status-error" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -101,14 +116,14 @@ export default function Groups() {
 
       <Modal
         open={showForm}
-        onClose={() => setShowForm(false)}
-        title="New Group"
+        onClose={() => { setShowForm(false); setEditId(null) }}
+        title={editId ? 'Edit Group' : 'New Group'}
         size="sm"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button onClick={handleCreate} loading={createGroup.isPending} disabled={!name.trim()}>
-              Create
+            <Button variant="secondary" onClick={() => { setShowForm(false); setEditId(null) }}>Cancel</Button>
+            <Button onClick={handleSave} loading={editId ? updateGroup.isPending : createGroup.isPending} disabled={!name.trim()}>
+              {editId ? 'Save' : 'Create'}
             </Button>
           </>
         }
