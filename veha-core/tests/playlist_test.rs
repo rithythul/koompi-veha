@@ -11,7 +11,11 @@ fn test_playlist_creation() {
     playlist.add(MediaItem {
         source: "video.mp4".to_string(),
         duration: None,
+        duration_secs: None,
         name: Some("Video".to_string()),
+        booking_id: None,
+        creative_id: None,
+        media_id: None,
     });
 
     assert!(!playlist.is_empty());
@@ -25,12 +29,20 @@ fn test_playlist_json_roundtrip() {
     playlist.add(MediaItem {
         source: "video.mp4".to_string(),
         duration: Some(Duration::from_secs(10)),
+        duration_secs: None,
         name: Some("Test Video".to_string()),
+        booking_id: None,
+        creative_id: None,
+        media_id: None,
     });
     playlist.add(MediaItem {
         source: "image.png".to_string(),
         duration: Some(Duration::from_secs(5)),
+        duration_secs: None,
         name: None,
+        booking_id: None,
+        creative_id: None,
+        media_id: None,
     });
 
     let path = "/tmp/veha-test-playlist.json";

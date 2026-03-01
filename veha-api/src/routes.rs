@@ -94,6 +94,20 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/play-logs", get(list_play_logs_handler))
         .route("/api/play-logs/summary", get(play_log_summary_handler))
         .route("/api/bookings/{id}/play-logs", get(booking_play_logs_handler))
+        // Campaign Performance
+        .route("/api/campaigns/{id}/performance", get(campaign_performance_handler))
+        // Creative Approval
+        .route("/api/creatives/{id}/approve", post(approve_creative_handler))
+        .route("/api/creatives/{id}/reject", post(reject_creative_handler))
+        // Reports
+        .route("/api/reports/revenue", get(revenue_report_handler))
+        // Alerts
+        .route("/api/alerts", get(list_alerts_handler))
+        .route("/api/alerts/count", get(alert_count_handler))
+        .route("/api/alerts/{id}/acknowledge", post(acknowledge_alert_handler))
+        // API Keys
+        .route("/api/api-keys", get(list_api_keys_handler).post(create_api_key_handler))
+        .route("/api/api-keys/{id}", delete(delete_api_key_handler))
         // Schedule Resolution
         .route("/api/boards/{id}/resolved-schedule", get(get_resolved_schedule_handler))
         // Users (admin only)
@@ -1657,6 +1671,187 @@ async fn delete_user_handler(
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("delete_user: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Campaign Performance ───────────────────────────────────────────────
+
+async fn campaign_performance_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::get_campaign_performance(&state.db, &id).await {
+        Ok(perf) => Json(perf).into_response(),
+        Err(e) => {
+            tracing::error!("campaign_performance: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Creative Approval ──────────────────────────────────────────────────
+
+async fn approve_creative_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+    match db::approve_creative(&state.db, &id, &user.id).await {
+        Ok(true) => StatusCode::OK.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("approve_creative: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn reject_creative_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+    match db::reject_creative(&state.db, &id, &user.id).await {
+        Ok(true) => StatusCode::OK.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("reject_creative: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Revenue Reports ────────────────────────────────────────────────────
+
+async fn revenue_report_handler(
+    State(state): State<AppState>,
+    Query(filter): Query<RevenueReportFilter>,
+) -> impl IntoResponse {
+    let group_by = filter.group_by.as_deref().unwrap_or("advertiser");
+    match db::get_revenue_report(
+        &state.db,
+        filter.start_date.as_deref(),
+        filter.end_date.as_deref(),
+        group_by,
+    )
+    .await
+    {
+        Ok(report) => Json(report).into_response(),
+        Err(e) => {
+            tracing::error!("revenue_report: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Alerts ────────────────────────────────────────────────────────────────
+
+async fn list_alerts_handler(
+    State(state): State<AppState>,
+    Query(filter): Query<AlertFilter>,
+) -> impl IntoResponse {
+    match db::list_alerts(&state.db, &filter).await {
+        Ok((items, total)) => Json(PaginatedResponse {
+            data: items,
+            total,
+            page: filter.page,
+            per_page: filter.per_page,
+        })
+        .into_response(),
+        Err(e) => {
+            tracing::error!("list_alerts: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn alert_count_handler(State(state): State<AppState>) -> impl IntoResponse {
+    match db::unacknowledged_alert_count(&state.db).await {
+        Ok(count) => Json(AlertCount { count }).into_response(),
+        Err(e) => {
+            tracing::error!("alert_count: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn acknowledge_alert_handler(
+    State(state): State<AppState>,
+    Extension(user): Extension<User>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) {
+        return e.into_response();
+    }
+    match db::acknowledge_alert(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("acknowledge_alert: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── API Keys ──────────────────────────────────────────────────────────────
+
+async fn list_api_keys_handler(
+    State(state): State<AppState>,
+    Extension(user): Extension<User>,
+) -> impl IntoResponse {
+    match db::list_api_keys(&state.db, &user.id).await {
+        Ok(keys) => Json(keys).into_response(),
+        Err(e) => {
+            tracing::error!("list_api_keys: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn create_api_key_handler(
+    State(state): State<AppState>,
+    Extension(user): Extension<User>,
+    Json(input): Json<CreateApiKey>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, &["admin"]) {
+        return e.into_response();
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    let raw_key = format!("vk_{}", uuid::Uuid::new_v4().to_string().replace('-', ""));
+    let preview = raw_key[..8].to_string();
+    let key_hash = auth::hash_api_key(&raw_key);
+
+    match db::create_api_key(&state.db, &id, &user.id, &input.name, &key_hash, &preview).await {
+        Ok(api_key) => Json(ApiKeyCreated {
+            id: api_key.id,
+            name: api_key.name,
+            key: raw_key,
+            preview: api_key.preview,
+            created_at: api_key.created_at,
+        })
+        .into_response(),
+        Err(e) => {
+            tracing::error!("create_api_key: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_api_key_handler(
+    State(state): State<AppState>,
+    Extension(user): Extension<User>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    match db::delete_api_key(&state.db, &id, &user.id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_api_key: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }

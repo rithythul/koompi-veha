@@ -17,7 +17,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { Pagination } from '../components/ui/Pagination'
 import { useToast } from '../components/ui/Toast'
-import { formatDate, getDaysOfWeekLabels } from '../lib/utils'
+import { formatDate, getDaysOfWeekLabels, formatCurrency } from '../lib/utils'
 import { BOOKING_TYPES, TARGET_TYPES, DAYS_OF_WEEK } from '../lib/constants'
 import type { Booking, CreateBooking } from '../types/api'
 
@@ -161,6 +161,8 @@ export default function Bookings() {
                 <th className="px-4 py-3">Dates</th>
                 <th className="px-4 py-3">Days</th>
                 <th className="px-4 py-3">Priority</th>
+                <th className="px-4 py-3">Cost/Slot</th>
+                <th className="px-4 py-3">Est. Cost</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -185,6 +187,8 @@ export default function Bookings() {
                   <td className="px-4 py-3">
                     <Badge variant="accent">{b.priority}</Badge>
                   </td>
+                  <td className="px-4 py-3 text-text-secondary text-xs">{formatCurrency(b.cost_per_slot)}</td>
+                  <td className="px-4 py-3 text-text-secondary text-xs">{formatCurrency(b.estimated_cost)}</td>
                   <td className="px-4 py-3">
                     <Badge variant="online">{b.status}</Badge>
                   </td>

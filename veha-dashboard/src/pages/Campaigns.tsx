@@ -12,7 +12,7 @@ import { Textarea } from '../components/ui/Textarea'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/Toast'
-import { formatDate } from '../lib/utils'
+import { formatDate, formatCurrency } from '../lib/utils'
 import type { CreateCampaign, Campaign } from '../types/api'
 
 const statusVariant: Record<string, 'info' | 'online' | 'warning' | 'default'> = {
@@ -68,6 +68,7 @@ export default function Campaigns() {
       name: c.name,
       start_date: c.start_date,
       end_date: c.end_date,
+      budget: c.budget,
       notes: c.notes ?? undefined,
     })
     setShowForm(true)
@@ -92,9 +93,14 @@ export default function Campaigns() {
     >
       <p className="text-sm font-medium text-text-primary truncate">{campaign.name}</p>
       <p className="text-xs text-text-secondary mt-1">{getAdvName(campaign.advertiser_id)}</p>
-      <p className="text-xs text-text-muted mt-1">
-        {formatDate(campaign.start_date)} - {formatDate(campaign.end_date)}
-      </p>
+      <div className="flex items-center justify-between mt-1">
+        <p className="text-xs text-text-muted">
+          {formatDate(campaign.start_date)} - {formatDate(campaign.end_date)}
+        </p>
+        {campaign.budget != null && (
+          <p className="text-xs text-text-secondary font-medium">{formatCurrency(campaign.budget)}</p>
+        )}
+      </div>
     </button>
   )
 
@@ -162,6 +168,7 @@ export default function Campaigns() {
                 <th className="px-4 py-3">Advertiser</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Dates</th>
+                <th className="px-4 py-3">Budget</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -179,6 +186,9 @@ export default function Campaigns() {
                   </td>
                   <td className="px-4 py-3 text-text-secondary text-xs">
                     {formatDate(c.start_date)} - {formatDate(c.end_date)}
+                  </td>
+                  <td className="px-4 py-3 text-text-secondary text-xs">
+                    {formatCurrency(c.budget)}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Button
@@ -222,6 +232,13 @@ export default function Campaigns() {
             <Input label="Start Date" type="date" value={formData.start_date} onChange={(e) => setFormData({ ...formData, start_date: e.target.value })} />
             <Input label="End Date" type="date" value={formData.end_date} onChange={(e) => setFormData({ ...formData, end_date: e.target.value })} />
           </div>
+          <Input
+            label="Budget"
+            type="number"
+            value={formData.budget ?? ''}
+            onChange={(e) => setFormData({ ...formData, budget: e.target.value ? parseFloat(e.target.value) : null })}
+            placeholder="e.g. 10000"
+          />
           <Textarea label="Notes" value={formData.notes ?? ''} onChange={(e) => setFormData({ ...formData, notes: e.target.value || undefined })} />
         </div>
       </Modal>

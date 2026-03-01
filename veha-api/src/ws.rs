@@ -11,6 +11,9 @@ use veha_core::command::{PlayerCommand, PlayerStatus};
 /// Map of board_id -> sender channel for pushing messages to the agent.
 pub type AgentConnections = Arc<RwLock<HashMap<String, mpsc::Sender<String>>>>;
 
+/// Set of sender channels for connected dashboard WebSocket clients.
+pub type DashboardConnections = Arc<RwLock<Vec<mpsc::Sender<String>>>>;
+
 /// Messages exchanged over the WebSocket.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -42,6 +45,7 @@ pub enum WsMessage {
 pub async fn handle_agent_socket(
     socket: WebSocket,
     agents: AgentConnections,
+    dashboards: DashboardConnections,
     db: sqlx::SqlitePool,
     api_key: String,
 ) {
@@ -156,6 +160,8 @@ pub async fn handle_agent_socket(
                     let state_str = &status.state;
                     let _ =
                         crate::db::update_board_status(&db_clone, &bid, state_str).await;
+                    // Broadcast status change to all connected dashboards.
+                    broadcast_board_status(&dashboards, &bid, state_str).await;
                 }
                 Ok(WsMessage::PlayReport {
                     booking_id, creative_id, media_id,
@@ -190,8 +196,59 @@ pub async fn handle_agent_socket(
         map.remove(&board_id);
     }
     let _ = crate::db::update_board_status(&db, &board_id, "offline").await;
+    broadcast_board_status(&dashboards, &board_id, "offline").await;
 
     send_task.abort();
+}
+
+/// Resolve and push the current schedule to a specific board agent.
+/// No-op if the board is not connected.
+pub async fn push_schedule_to_board(
+    agents: &AgentConnections,
+    db: &sqlx::SqlitePool,
+    board_id: &str,
+) {
+    // Check if board is connected before doing work
+    let is_connected = agents.read().await.contains_key(board_id);
+    if !is_connected {
+        return;
+    }
+
+    match crate::resolver::resolve_for_board(db, board_id).await {
+        Ok(resolved) => {
+            let playlist_json = serde_json::to_string(&resolved).unwrap_or_default();
+            let msg = match serde_json::to_string(&WsMessage::ScheduleUpdate {
+                active_booking_ids: resolved.active_booking_ids,
+                playlist: playlist_json,
+            }) {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!("Failed to serialize schedule for {board_id}: {e}");
+                    return;
+                }
+            };
+            let map = agents.read().await;
+            if let Some(tx) = map.get(board_id) {
+                if tx.send(msg).await.is_err() {
+                    tracing::warn!("Failed to push schedule to {board_id}");
+                }
+            }
+        }
+        Err(e) => tracing::error!("Failed to resolve schedule for {board_id}: {e}"),
+    }
+}
+
+/// Push updated schedules to all given board IDs (in background).
+pub fn push_schedule_to_boards(
+    agents: AgentConnections,
+    db: sqlx::SqlitePool,
+    board_ids: Vec<String>,
+) {
+    tokio::spawn(async move {
+        for board_id in &board_ids {
+            push_schedule_to_board(&agents, &db, board_id).await;
+        }
+    });
 }
 
 /// Send a command to a specific board agent. Returns true if the message was queued.
@@ -216,4 +273,71 @@ pub async fn send_command_to_board(
     } else {
         false
     }
+}
+
+/// Broadcast a board status change to all connected dashboard clients.
+pub async fn broadcast_board_status(
+    dashboards: &DashboardConnections,
+    board_id: &str,
+    status: &str,
+) {
+    let msg = match serde_json::to_string(&serde_json::json!({
+        "type": "BoardStatusChange",
+        "board_id": board_id,
+        "status": status,
+    })) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to serialize board status broadcast: {e}");
+            return;
+        }
+    };
+
+    let readers = dashboards.read().await;
+    for tx in readers.iter() {
+        let _ = tx.try_send(msg.clone());
+    }
+}
+
+/// Handle an incoming dashboard WebSocket connection.
+pub async fn handle_dashboard_socket(socket: WebSocket, dashboards: DashboardConnections) {
+    let (mut ws_tx, mut ws_rx) = socket.split();
+
+    // Create a channel for sending messages to this dashboard client.
+    let (tx, mut rx) = mpsc::channel::<String>(64);
+
+    // Register this dashboard connection.
+    {
+        let mut conns = dashboards.write().await;
+        conns.push(tx);
+    }
+
+    // Spawn a task that forwards messages from the channel to the WebSocket.
+    let send_task = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Keep the connection alive by reading (and discarding) incoming messages.
+    // Dashboard clients don't send meaningful messages, but we need to consume
+    // the stream to detect disconnection and handle ping/pong.
+    while let Some(Ok(msg)) = ws_rx.next().await {
+        match msg {
+            Message::Close(_) => break,
+            _ => {} // Ignore other messages from dashboards
+        }
+    }
+
+    // Dashboard disconnected — clean up by removing the sender.
+    // We remove any sender whose receiver has been dropped (closed).
+    {
+        let mut conns = dashboards.write().await;
+        conns.retain(|tx| !tx.is_closed());
+    }
+
+    send_task.abort();
+    tracing::debug!("Dashboard WebSocket disconnected");
 }

@@ -31,5 +31,7 @@ pub struct PlayerStatus {
     #[serde(default)]
     pub active_creative_id: Option<String>,
     #[serde(default)]
+    pub active_media_id: Option<String>,
+    #[serde(default)]
     pub uptime_secs: Option<u64>,
 }

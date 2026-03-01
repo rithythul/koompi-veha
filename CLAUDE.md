@@ -9,8 +9,8 @@ koompi-veha is a Rust Digital Out-of-Home (veha) advertising platform for LED bi
 ```
   ┌─────────────────┐     REST/WS      ┌──────────────┐
   │   Dashboard     │◄────────────────►│   API Server  │
-  │  (veha-api/     │                  │  (veha-api)   │
-  │   static/)      │                  │  axum+SQLite  │
+  │ (veha-dashboard │                  │  (veha-api)   │
+  │  → static/)     │                  │  axum+SQLite  │
   └─────────────────┘                  └──────┬───────┘
                                               │ WebSocket
                                   ┌───────────┼───────────┐
@@ -39,6 +39,7 @@ cargo build --workspace          # build everything
 cargo test --workspace           # run all tests (11 tests)
 cargo build -p veha-player --features framebuffer  # with framebuffer support
 cargo check -p veha-web --target wasm32-unknown-unknown  # check WASM crate
+cd veha-dashboard && bun run build  # build dashboard SPA (output: dist/)
 ```
 
 FFmpeg 8+ dev libraries must be installed (libavcodec, libavformat, libavutil, libswscale, libswresample).
@@ -72,13 +73,22 @@ koompi-veha/
 │       └── ipc.rs       # Unix socket IPC server (JSON commands)
 ├── veha-api/            # Binary: REST/WebSocket API server
 │   ├── migrations/      # SQLite schema (001_init.sql)
-│   ├── static/          # Web dashboard (index.html, app.js, style.css)
 │   └── src/
 │       ├── main.rs      # axum server entry point
 │       ├── routes.rs    # All REST endpoints
 │       ├── db.rs        # SQLite CRUD (sqlx, inline migrations)
 │       ├── models.rs    # API data types (sqlx::FromRow)
-│       └── ws.rs        # WebSocket agent handler
+│       ├── auth.rs      # Session auth middleware, RBAC, password hashing
+│       ├── resolver.rs  # Schedule resolver (bookings → playlist)
+│       └── ws.rs        # WebSocket agent + dashboard handler
+├── veha-dashboard/      # React SPA: Admin dashboard (Vite + TypeScript + Tailwind)
+│   └── src/
+│       ├── App.tsx      # Router with lazy-loaded pages
+│       ├── api/         # TanStack Query hooks (boards, media, playlists, etc.)
+│       ├── pages/       # 14 pages (Dashboard, Boards, Campaigns, Users, etc.)
+│       ├── components/  # UI component library + layout
+│       ├── hooks/       # Custom hooks (useBoardStatus WebSocket)
+│       └── types/       # TypeScript API interfaces
 ├── veha-agent/          # Binary: Board agent
 │   └── src/
 │       ├── main.rs      # Entry point
@@ -100,7 +110,7 @@ koompi-veha/
 - **veha-web does NOT depend on veha-core** — FFmpeg can't compile to WASM. The WASM crate reimplements playlist/timing only, using browser-native `<video>` and `<img>`.
 - **WsMessage is duplicated** in veha-api and veha-agent (not shared) to avoid circular dependencies.
 - **SQLite via sqlx** — string-based queries (no compile-time checking), inline migrations in db.rs.
-- **Dashboard is vanilla HTML/JS/CSS** — Tailwind via CDN, no build tools, served by axum `ServeDir`.
+- **Dashboard is React SPA** — Vite + TypeScript + Tailwind CSS 4, TanStack Query, Zustand. Built to `veha-dashboard/dist/`, served by axum `ServeDir`. Live board status via `/ws/dashboard` WebSocket.
 
 ## Conventions
 
@@ -115,7 +125,7 @@ koompi-veha/
 
 **Add a new output backend:** Create `veha-output/src/mybackend.rs`, implement `OutputSink` trait, add feature gate in Cargo.toml and lib.rs, add match arm in veha-player/src/main.rs.
 
-**Add a new API endpoint:** Add handler in `veha-api/src/routes.rs`, add DB function in `db.rs` if needed, add model in `models.rs`, register route in `create_router()`.
+**Add a new API endpoint:** Add handler in `veha-api/src/routes.rs`, add DB function in `db.rs` if needed, add model in `models.rs`, register route in `create_router()`. For write endpoints, add `Extension<User>` + `auth::require_role(&user, WRITE_ROLES)` for RBAC.
 
 **Add a new player command:** Add variant to `PlayerCommand` enum in `veha-core/src/command.rs`, handle it in veha-player/src/main.rs command processing loop, update WsMessage in both veha-api/src/ws.rs and veha-agent/src/ws_client.rs.
 

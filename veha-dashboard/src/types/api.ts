@@ -154,6 +154,8 @@ export interface Zone {
   name: string
   parent_id: string | null
   zone_type: string
+  rate_per_slot: number | null
+  currency: string | null
   created_at: string
 }
 
@@ -166,6 +168,8 @@ export interface CreateZone {
   name: string
   parent_id?: string | null
   zone_type?: string
+  rate_per_slot?: number | null
+  currency?: string
 }
 
 // === Advertisers ===
@@ -196,6 +200,7 @@ export interface Campaign {
   status: string
   start_date: string
   end_date: string
+  budget: number | null
   notes: string | null
   created_at: string
   updated_at: string
@@ -206,6 +211,7 @@ export interface CreateCampaign {
   name: string
   start_date: string
   end_date: string
+  budget?: number | null
   notes?: string
 }
 
@@ -224,6 +230,9 @@ export interface Creative {
   name: string | null
   duration_secs: number | null
   status: string
+  approval_status: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
   created_at: string
 }
 
@@ -248,6 +257,8 @@ export interface Booking {
   slot_duration_secs: number
   slots_per_loop: number
   priority: number
+  cost_per_slot: number | null
+  estimated_cost: number | null
   status: string
   notes: string | null
   created_at: string
@@ -351,4 +362,83 @@ export interface ResolvedPlaylist {
   items: ResolvedItem[]
   active_booking_ids: string[]
   loop_playlist: boolean
+}
+
+// === Campaign Performance ===
+export interface CampaignPerformance {
+  campaign_id: string
+  total_plays: number
+  total_duration_secs: number
+  estimated_reach: number
+  cost_per_play: number | null
+  budget_utilization: number | null
+  total_estimated_cost: number
+  budget: number | null
+}
+
+// === Revenue Reports ===
+export interface RevenueRow {
+  group_key: string
+  group_name: string
+  total_cost: number
+  booking_count: number
+}
+
+export interface RevenueReport {
+  rows: RevenueRow[]
+  total: number
+  start_date: string | null
+  end_date: string | null
+  group_by: string
+}
+
+export interface RevenueReportFilter {
+  start_date?: string
+  end_date?: string
+  group_by?: 'advertiser' | 'zone' | 'campaign'
+}
+
+// === API Keys ===
+export interface ApiKey {
+  id: string
+  user_id: string
+  name: string
+  preview: string
+  created_at: string
+  last_used_at: string | null
+}
+
+export interface ApiKeyCreated {
+  id: string
+  name: string
+  key: string
+  preview: string
+  created_at: string
+}
+
+export interface CreateApiKey {
+  name: string
+}
+
+// === Alerts ===
+export interface BoardAlert {
+  id: string
+  board_id: string | null
+  alert_type: string
+  severity: string
+  message: string
+  acknowledged: boolean
+  created_at: string
+  acknowledged_at: string | null
+}
+
+export interface AlertFilter {
+  acknowledged?: boolean
+  alert_type?: string
+  page?: number
+  per_page?: number
+}
+
+export interface AlertCount {
+  count: number
 }

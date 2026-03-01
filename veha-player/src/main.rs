@@ -168,16 +168,16 @@ async fn main() {
                 let idx = *lock_or_default(&cmd_index);
                 let pl = lock_or_default(&cmd_playlist);
 
+                let current = pl.as_ref().and_then(|p| p.items.get(idx));
                 let status = PlayerStatus {
                     state: format!("{state:?}"),
-                    current_item: pl
-                        .as_ref()
-                        .and_then(|p| p.items.get(idx).map(|i| i.source.clone())),
+                    current_item: current.map(|i| i.source.clone()),
                     current_index: idx,
                     total_items: pl.as_ref().map(|p| p.len()).unwrap_or(0),
                     playlist_name: pl.as_ref().map(|p| p.name.clone()),
-                    active_booking_id: None,
-                    active_creative_id: None,
+                    active_booking_id: current.and_then(|i| i.booking_id.clone()),
+                    active_creative_id: current.and_then(|i| i.creative_id.clone()),
+                    active_media_id: current.and_then(|i| i.media_id.clone()),
                     uptime_secs: None,
                 };
 
@@ -198,6 +198,7 @@ async fn main() {
                 playlist_name: None,
                 active_booking_id: None,
                 active_creative_id: None,
+                active_media_id: None,
                 uptime_secs: None,
             });
         }

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Megaphone, Plus, Trash2, Play, Pause } from 'lucide-react'
+import { ArrowLeft, Megaphone, Plus, Trash2, Play, Pause, Check, X } from 'lucide-react'
 import {
   useCampaign, useActivateCampaign, usePauseCampaign,
   useCreatives, useCreateCreative, useDeleteCreative,
+  useCampaignPerformance, useApproveCreative, useRejectCreative,
 } from '../api/campaigns'
 import { useAdvertiser } from '../api/advertisers'
 import { useMedia } from '../api/media'
@@ -15,7 +16,7 @@ import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { PageSpinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/Toast'
-import { formatDate, getDaysOfWeekLabels } from '../lib/utils'
+import { formatDate, getDaysOfWeekLabels, formatCurrency, formatDuration } from '../lib/utils'
 
 const statusVariant: Record<string, 'info' | 'online' | 'warning' | 'default'> = {
   draft: 'info',
@@ -32,10 +33,13 @@ export default function CampaignDetail() {
   const { data: mediaData } = useMedia({ per_page: 200 })
   const { data: bookingsData } = useBookings({ campaign_id: id, per_page: 50 })
 
+  const { data: performance } = useCampaignPerformance(id ?? '')
   const activate = useActivateCampaign(id ?? '')
   const pause = usePauseCampaign(id ?? '')
   const createCreative = useCreateCreative(id ?? '')
   const deleteCreative = useDeleteCreative()
+  const approveCreative = useApproveCreative(id ?? '')
+  const rejectCreative = useRejectCreative(id ?? '')
   const toast = useToast()
 
   const [showMediaPicker, setShowMediaPicker] = useState(false)
@@ -137,6 +141,18 @@ export default function CampaignDetail() {
                 <p className="text-text-muted text-xs mb-1">End Date</p>
                 <p className="text-text-primary">{formatDate(campaign.end_date)}</p>
               </div>
+              <div>
+                <p className="text-text-muted text-xs mb-1">Budget</p>
+                <p className="text-text-primary">{formatCurrency(campaign.budget)}</p>
+              </div>
+              {campaign.budget != null && (
+                <div>
+                  <p className="text-text-muted text-xs mb-1">Spent (est.)</p>
+                  <p className="text-text-primary">
+                    {formatCurrency(bookings.reduce((sum, b) => sum + (b.estimated_cost ?? 0), 0))}
+                  </p>
+                </div>
+              )}
               {campaign.notes && (
                 <div className="col-span-full">
                   <p className="text-text-muted text-xs mb-1">Notes</p>
@@ -145,6 +161,46 @@ export default function CampaignDetail() {
               )}
             </div>
           </Card>
+
+          {/* Performance Stats */}
+          {performance && (
+            <Card title="Performance">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="text-text-muted text-xs mb-1">Total Plays</p>
+                  <p className="text-text-primary font-semibold text-lg">{performance.total_plays.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-text-muted text-xs mb-1">Total Duration</p>
+                  <p className="text-text-primary font-semibold text-lg">{formatDuration(performance.total_duration_secs)}</p>
+                </div>
+                <div>
+                  <p className="text-text-muted text-xs mb-1">Est. Reach</p>
+                  <p className="text-text-primary font-semibold text-lg">{performance.estimated_reach.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-text-muted text-xs mb-1">Cost per Play</p>
+                  <p className="text-text-primary font-semibold text-lg">{formatCurrency(performance.cost_per_play)}</p>
+                </div>
+                {performance.budget_utilization != null && (
+                  <div className="col-span-2">
+                    <p className="text-text-muted text-xs mb-1">Budget Utilization</p>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 bg-bg-elevated rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-accent rounded-full transition-all"
+                          style={{ width: `${Math.min(performance.budget_utilization, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-text-secondary font-medium">
+                        {performance.budget_utilization.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
 
           {/* Creatives */}
           <Card
@@ -170,10 +226,44 @@ export default function CampaignDetail() {
                         <span className="text-xs text-text-muted">{cr.duration_secs}s</span>
                       )}
                       <Badge variant="online" className="text-[10px]">{cr.status}</Badge>
+                      {cr.approval_status && (
+                        <Badge
+                          variant={cr.approval_status === 'approved' ? 'online' : cr.approval_status === 'rejected' ? 'warning' : 'default'}
+                          className="text-[10px]"
+                        >
+                          {cr.approval_status}
+                        </Badge>
+                      )}
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => setDeleteCreativeId(cr.id)}>
-                      <Trash2 className="w-3.5 h-3.5 text-status-error" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {cr.approval_status === 'pending_review' && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => approveCreative.mutate(cr.id, {
+                              onSuccess: () => toast.success('Creative approved'),
+                              onError: (err) => toast.error(err.message),
+                            })}
+                          >
+                            <Check className="w-3.5 h-3.5 text-status-online" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => rejectCreative.mutate(cr.id, {
+                              onSuccess: () => toast.success('Creative rejected'),
+                              onError: (err) => toast.error(err.message),
+                            })}
+                          >
+                            <X className="w-3.5 h-3.5 text-status-error" />
+                          </Button>
+                        </>
+                      )}
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteCreativeId(cr.id)}>
+                        <Trash2 className="w-3.5 h-3.5 text-status-error" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -12,6 +12,7 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/Toast'
 import { ZONE_TYPES } from '../lib/constants'
+import { formatCurrency } from '../lib/utils'
 import type { Zone, CreateZone } from '../types/api'
 
 function ZoneNode({
@@ -100,7 +101,7 @@ export default function Zones() {
 
   const openEdit = (zone: Zone) => {
     setEditZone(zone)
-    setFormData({ name: zone.name, zone_type: zone.zone_type, parent_id: zone.parent_id })
+    setFormData({ name: zone.name, zone_type: zone.zone_type, parent_id: zone.parent_id, rate_per_slot: zone.rate_per_slot, currency: zone.currency ?? 'USD' })
     setShowForm(true)
   }
 
@@ -188,6 +189,14 @@ export default function Zones() {
                   <p className="text-text-muted text-xs mb-1">Boards</p>
                   <p className="text-text-primary font-medium">{zoneDetail.board_count}</p>
                 </div>
+                <div>
+                  <p className="text-text-muted text-xs mb-1">Rate per Slot</p>
+                  <p className="text-text-primary font-medium">{formatCurrency(zoneDetail.rate_per_slot, zoneDetail.currency)}</p>
+                </div>
+                <div>
+                  <p className="text-text-muted text-xs mb-1">Currency</p>
+                  <p className="text-text-primary font-medium">{zoneDetail.currency ?? 'USD'}</p>
+                </div>
               </div>
               {zoneDetail.children.length > 0 && (
                 <div>
@@ -250,6 +259,19 @@ export default function Zones() {
               .filter((z) => z.id !== editZone?.id)
               .map((z) => ({ value: z.id, label: z.name }))}
             placeholder="None (root zone)"
+          />
+          <Input
+            label="Rate per Slot"
+            type="number"
+            value={formData.rate_per_slot ?? ''}
+            onChange={(e) => setFormData({ ...formData, rate_per_slot: e.target.value ? parseFloat(e.target.value) : null })}
+            placeholder="e.g. 5.00"
+          />
+          <Input
+            label="Currency"
+            value={formData.currency ?? 'USD'}
+            onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+            placeholder="USD"
           />
         </div>
       </Modal>

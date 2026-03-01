@@ -6,6 +6,7 @@ use axum::{
 };
 
 use crate::AppState;
+use crate::models::User;
 
 /// Hash a password using Argon2.
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
@@ -55,20 +56,58 @@ pub async fn require_auth(
     // Extract session token from cookie
     let session_token = extract_session_token(&headers);
 
-    let token = match session_token {
-        Some(t) => t,
-        None => return (StatusCode::UNAUTHORIZED, "Not authenticated").into_response(),
-    };
-
-    // Validate session in DB
-    match crate::db::get_valid_session(&state.db, token).await {
-        Ok(Some(_user)) => next.run(request).await,
-        Ok(None) => (StatusCode::UNAUTHORIZED, "Session expired").into_response(),
-        Err(e) => {
-            tracing::error!("Session validation error: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    if let Some(token) = session_token {
+        // Validate session in DB
+        match crate::db::get_valid_session(&state.db, token).await {
+            Ok(Some(user)) => {
+                let mut request = request;
+                request.extensions_mut().insert(user);
+                return next.run(request).await;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::error!("Session validation error: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
         }
     }
+
+    // Fallback: try X-API-Key header
+    if let Some(api_key) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
+        let key_hash = hash_api_key(api_key);
+        match crate::db::get_user_by_api_key_hash(&state.db, &key_hash).await {
+            Ok(Some(user)) => {
+                let mut request = request;
+                request.extensions_mut().insert(user);
+                return next.run(request).await;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                tracing::error!("API key validation error: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        }
+    }
+
+    (StatusCode::UNAUTHORIZED, "Not authenticated").into_response()
+}
+
+/// Check that the user (from request extensions) has one of the allowed roles.
+/// Returns `Ok(user)` if authorized, or a 403 response if not.
+pub fn require_role(user: &User, allowed: &[&str]) -> Result<(), (StatusCode, &'static str)> {
+    if allowed.contains(&user.role.as_str()) {
+        Ok(())
+    } else {
+        Err((StatusCode::FORBIDDEN, "Insufficient permissions"))
+    }
+}
+
+/// Hash an API key using SHA-256.
+pub fn hash_api_key(key: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(key.as_bytes());
+    hex::encode(hasher.finalize())
 }
 
 /// Extract the veha_session cookie value from headers.

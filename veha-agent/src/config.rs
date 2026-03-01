@@ -48,4 +48,23 @@ impl AgentConfig {
         let config: AgentConfig = toml::from_str(&content)?;
         Ok(config)
     }
+
+    /// Derive the HTTP base URL from the WebSocket `api_url`.
+    ///
+    /// `ws://host:3000/ws/agent` → `http://host:3000`
+    /// `wss://host/ws/agent`     → `https://host`
+    pub fn api_base_url(&self) -> String {
+        let url = self
+            .api_url
+            .replace("wss://", "https://")
+            .replace("ws://", "http://");
+        // Strip path component (everything from the first '/' after the host)
+        match url.find("://") {
+            Some(i) => match url[i + 3..].find('/') {
+                Some(j) => url[..i + 3 + j].to_string(),
+                None => url,
+            },
+            None => url,
+        }
+    }
 }

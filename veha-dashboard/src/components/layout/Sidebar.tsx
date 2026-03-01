@@ -11,7 +11,10 @@ import {
   Megaphone,
   CalendarCheck,
   BarChart3,
+  TrendingUp,
+  AlertTriangle,
   Clock,
+  Settings,
   Users,
   PanelLeftClose,
   PanelLeft,
@@ -61,12 +64,17 @@ const sections: NavSection[] = [
   },
   {
     title: 'Analytics',
-    items: [{ label: 'Play Logs', path: '/playlogs', icon: BarChart3 }],
+    items: [
+      { label: 'Play Logs', path: '/playlogs', icon: BarChart3 },
+      { label: 'Reports', path: '/reports', icon: TrendingUp },
+      { label: 'Alerts', path: '/alerts', icon: AlertTriangle },
+    ],
   },
   {
     title: 'System',
     items: [
       { label: 'Schedules', path: '/schedules', icon: Clock },
+      { label: 'Settings', path: '/settings', icon: Settings, adminOnly: true },
       { label: 'Users', path: '/users', icon: Users, adminOnly: true },
     ],
   },

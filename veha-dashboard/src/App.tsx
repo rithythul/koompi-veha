@@ -23,6 +23,9 @@ const Bookings = lazy(() => import('./pages/Bookings'))
 const Advertisers = lazy(() => import('./pages/Advertisers'))
 const PlayLogs = lazy(() => import('./pages/PlayLogs'))
 const Schedules = lazy(() => import('./pages/Schedules'))
+const Reports = lazy(() => import('./pages/Reports'))
+const Alerts = lazy(() => import('./pages/Alerts'))
+const Settings = lazy(() => import('./pages/Settings'))
 const Users = lazy(() => import('./pages/Users'))
 
 const queryClient = new QueryClient({
@@ -73,7 +76,10 @@ export default function App() {
                 <Route path="/bookings" element={<Bookings />} />
                 <Route path="/advertisers" element={<Advertisers />} />
                 <Route path="/playlogs" element={<PlayLogs />} />
+                <Route path="/reports" element={<Reports />} />
+                <Route path="/alerts" element={<Alerts />} />
                 <Route path="/schedules" element={<Schedules />} />
+                <Route path="/settings" element={<Settings />} />
                 <Route path="/users" element={<Users />} />
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

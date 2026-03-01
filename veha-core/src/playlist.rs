@@ -6,8 +6,30 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaItem {
     pub source: String,
+    /// Duration as seconds (used by the resolver and JSON playlists).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_secs: Option<u32>,
+    /// Duration as `std::time::Duration` — not serialized. Use `effective_duration()`.
+    #[serde(skip)]
     pub duration: Option<Duration>,
     pub name: Option<String>,
+    /// Booking that scheduled this item (set by the resolver).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub booking_id: Option<String>,
+    /// Creative record for this item (set by the resolver).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creative_id: Option<String>,
+    /// Media record id (set by the resolver).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_id: Option<String>,
+}
+
+impl MediaItem {
+    /// Returns the effective duration, preferring `duration` over `duration_secs`.
+    pub fn effective_duration(&self) -> Option<Duration> {
+        self.duration
+            .or_else(|| self.duration_secs.map(|s| Duration::from_secs(s as u64)))
+    }
 }
 
 /// A playlist of media items.

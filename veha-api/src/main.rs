@@ -15,6 +15,7 @@ mod ws;
 pub struct AppState {
     pub db: SqlitePool,
     pub agents: ws::AgentConnections,
+    pub dashboards: ws::DashboardConnections,
     pub media_dir: String,
     pub api_key: String,
 }
@@ -94,6 +95,7 @@ async fn main() {
     let state = AppState {
         db: db.clone(),
         agents: ws::AgentConnections::default(),
+        dashboards: ws::DashboardConnections::default(),
         media_dir: args.media_dir,
         api_key: args.api_key,
     };
@@ -123,6 +125,56 @@ async fn main() {
         }
     };
     tracing::info!("API server listening on {}", args.bind);
+
+    // Background task: clean up expired sessions every hour
+    let cleanup_db = db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        interval.tick().await; // skip immediate first tick
+        loop {
+            interval.tick().await;
+            match db::cleanup_expired_sessions(&cleanup_db).await {
+                Ok(n) if n > 0 => tracing::info!("Cleaned up {n} expired sessions"),
+                Err(e) => tracing::error!("Session cleanup failed: {e}"),
+                _ => {}
+            }
+        }
+    });
+
+    // Background task: expire completed campaigns every hour
+    let expiry_db = db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            match db::expire_campaigns(&expiry_db).await {
+                Ok(n) if n > 0 => tracing::info!("Expired {n} campaigns past end_date"),
+                Err(e) => tracing::error!("Campaign expiry failed: {e}"),
+                _ => {}
+            }
+        }
+    });
+
+    // Background task: check for offline boards + expiring campaigns every 5 minutes
+    let alerts_db = db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(300));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            match db::create_offline_alerts(&alerts_db).await {
+                Ok(n) if n > 0 => tracing::info!("Created {n} offline board alerts"),
+                Err(e) => tracing::error!("Offline alert check failed: {e}"),
+                _ => {}
+            }
+            match db::create_campaign_expiring_alerts(&alerts_db).await {
+                Ok(n) if n > 0 => tracing::info!("Created {n} campaign expiring alerts"),
+                Err(e) => tracing::error!("Campaign expiring alert check failed: {e}"),
+                _ => {}
+            }
+        }
+    });
 
     // Graceful shutdown on SIGTERM/SIGINT
     let shutdown = async {

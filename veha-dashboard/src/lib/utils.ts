@@ -85,3 +85,18 @@ export function getDaysOfWeekLabels(csv: string): string {
   if (indices.length === 7) return 'Every day'
   return indices.map((i) => days[i] ?? '?').join(', ')
 }
+
+export function formatCurrency(amount: number | null | undefined, currency?: string | null): string {
+  if (amount == null) return '--'
+  const cur = currency || 'USD'
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: cur,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount)
+  } catch {
+    return `${cur} ${amount.toFixed(2)}`
+  }
+}

@@ -192,6 +192,20 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateUser {
+    pub username: String,
+    pub password: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateUser {
+    pub username: Option<String>,
+    pub role: Option<String>,
+    pub password: Option<String>,
+}
+
 // ── veha Models ───────────────────────────────────────────────────────
 
 // ── Zones ──
@@ -202,6 +216,8 @@ pub struct Zone {
     pub name: String,
     pub parent_id: Option<String>,
     pub zone_type: String,
+    pub rate_per_slot: Option<f64>,
+    pub currency: Option<String>,
     pub created_at: String,
 }
 
@@ -211,6 +227,8 @@ pub struct CreateZone {
     pub parent_id: Option<String>,
     #[serde(default = "default_zone_type")]
     pub zone_type: String,
+    pub rate_per_slot: Option<f64>,
+    pub currency: Option<String>,
 }
 
 fn default_zone_type() -> String {
@@ -258,6 +276,7 @@ pub struct Campaign {
     pub status: String,
     pub start_date: String,
     pub end_date: String,
+    pub budget: Option<f64>,
     pub notes: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -269,6 +288,7 @@ pub struct CreateCampaign {
     pub name: String,
     pub start_date: String,
     pub end_date: String,
+    pub budget: Option<f64>,
     pub notes: Option<String>,
 }
 
@@ -292,6 +312,9 @@ pub struct Creative {
     pub name: Option<String>,
     pub duration_secs: Option<i32>,
     pub status: String,
+    pub approval_status: Option<String>,
+    pub reviewed_by: Option<String>,
+    pub reviewed_at: Option<String>,
     pub created_at: String,
 }
 
@@ -300,6 +323,14 @@ pub struct CreateCreative {
     pub media_id: String,
     pub name: Option<String>,
     pub duration_secs: Option<i32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateCreative {
+    pub media_id: String,
+    pub name: Option<String>,
+    pub duration_secs: Option<i32>,
+    pub status: Option<String>,
 }
 
 // ── Bookings ──
@@ -319,6 +350,8 @@ pub struct Booking {
     pub slot_duration_secs: i32,
     pub slots_per_loop: i32,
     pub priority: i32,
+    pub cost_per_slot: Option<f64>,
+    pub estimated_cost: Option<f64>,
     pub status: String,
     pub notes: Option<String>,
     pub created_at: String,
@@ -394,4 +427,101 @@ pub struct PlayLogSummary {
 pub struct PlayLogSummaryFilter {
     pub start_date: Option<String>,
     pub end_date: Option<String>,
+}
+
+// ── Board Alerts ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct BoardAlert {
+    pub id: String,
+    pub board_id: Option<String>,
+    pub alert_type: String,
+    pub severity: String,
+    pub message: String,
+    pub acknowledged: bool,
+    pub created_at: String,
+    pub acknowledged_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AlertFilter {
+    pub acknowledged: Option<bool>,
+    pub alert_type: Option<String>,
+    #[serde(default = "default_page")]
+    pub page: u32,
+    #[serde(default = "default_per_page")]
+    pub per_page: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AlertCount {
+    pub count: i64,
+}
+
+// ── API Keys ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct ApiKey {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    #[serde(skip_serializing)]
+    pub key_hash: String,
+    pub preview: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiKeyCreated {
+    pub id: String,
+    pub name: String,
+    pub key: String,
+    pub preview: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateApiKey {
+    pub name: String,
+}
+
+// ── Campaign Performance ──
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CampaignPerformance {
+    pub campaign_id: String,
+    pub total_plays: i64,
+    pub total_duration_secs: i64,
+    pub estimated_reach: i64,
+    pub cost_per_play: Option<f64>,
+    pub budget_utilization: Option<f64>,
+    pub total_estimated_cost: f64,
+    pub budget: Option<f64>,
+}
+
+// ── Revenue Reports ──
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct RevenueReportFilter {
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub group_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RevenueRow {
+    pub group_key: String,
+    pub group_name: String,
+    pub total_cost: f64,
+    pub booking_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RevenueReport {
+    pub rows: Vec<RevenueRow>,
+    pub total: f64,
+    pub start_date: Option<String>,
+    pub end_date: Option<String>,
+    pub group_by: String,
 }

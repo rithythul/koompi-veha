@@ -95,7 +95,7 @@ impl Player {
                 break;
             }
 
-            if let Some(max_dur) = item.duration {
+            if let Some(max_dur) = item.effective_duration() {
                 if playback_start.elapsed() >= max_dur {
                     break;
                 }
@@ -122,7 +122,7 @@ impl Player {
         target_h: u32,
     ) -> Result<()> {
         let frame = image::decode_image(&item.source, target_w, target_h)?;
-        let display_duration = item.duration.unwrap_or(Duration::from_secs(5));
+        let display_duration = item.effective_duration().unwrap_or(Duration::from_secs(5));
         let start = Instant::now();
 
         self.state = PlayerState::Playing;

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from './client'
 import { toQueryString } from '../lib/utils'
 import type {
-  Campaign, CreateCampaign, CampaignFilter,
+  Campaign, CreateCampaign, CampaignFilter, CampaignPerformance,
   Creative, CreateCreative, PaginatedResponse,
 } from '../types/api'
 
@@ -112,5 +112,33 @@ export function useDeleteCreative() {
     mutationFn: (id: string) =>
       apiClient<null>(`/api/creatives/${id}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['campaigns'] }),
+  })
+}
+
+export function useCampaignPerformance(id: string) {
+  return useQuery({
+    queryKey: ['campaigns', id, 'performance'],
+    queryFn: () => apiClient<CampaignPerformance>(`/api/campaigns/${id}/performance`),
+    enabled: !!id,
+  })
+}
+
+export function useApproveCreative(campaignId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient<null>(`/api/creatives/${id}/approve`, { method: 'POST' }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['campaigns', campaignId, 'creatives'] }),
+  })
+}
+
+export function useRejectCreative(campaignId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient<null>(`/api/creatives/${id}/reject`, { method: 'POST' }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['campaigns', campaignId, 'creatives'] }),
   })
 }

@@ -7,6 +7,9 @@ const MIGRATION_SQL: &str = include_str!("../migrations/001_init.sql");
 const MIGRATION_002_SQL: &str = include_str!("../migrations/002_indexes.sql");
 const MIGRATION_003_SQL: &str = include_str!("../migrations/003_veha.sql");
 const MIGRATION_003B_SQL: &str = include_str!("../migrations/003b_board_extensions.sql");
+const MIGRATION_004_SQL: &str = include_str!("../migrations/004_revenue.sql");
+const MIGRATION_005_SQL: &str = include_str!("../migrations/005_alerts.sql");
+const MIGRATION_006_SQL: &str = include_str!("../migrations/006_api_keys.sql");
 
 /// Initialize the database pool and run migrations.
 pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error>> {
@@ -69,6 +72,57 @@ pub async fn init_db(path: &str) -> Result<SqlitePool, Box<dyn std::error::Error
             }
         }
         tracing::info!("Board extensions migration (003b) applied");
+    }
+
+    // Run revenue migration (004) — check if rate_per_slot column exists on zones
+    let rate_col_exists: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM pragma_table_info('zones') WHERE name='rate_per_slot'",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    if rate_col_exists.0 == 0 {
+        for statement in MIGRATION_004_SQL.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                sqlx::query(trimmed).execute(&pool).await?;
+            }
+        }
+        tracing::info!("Revenue migration (004) applied");
+    }
+
+    // Run alerts migration (005) — check if board_alerts table exists
+    let alerts_exists: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='board_alerts'",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    if alerts_exists.0 == 0 {
+        for statement in MIGRATION_005_SQL.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                sqlx::query(trimmed).execute(&pool).await?;
+            }
+        }
+        tracing::info!("Alerts migration (005) applied");
+    }
+
+    // Run API keys migration (006) — check if api_keys table exists
+    let api_keys_exists: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_keys'",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    if api_keys_exists.0 == 0 {
+        for statement in MIGRATION_006_SQL.split(';') {
+            let trimmed = statement.trim();
+            if !trimmed.is_empty() {
+                sqlx::query(trimmed).execute(&pool).await?;
+            }
+        }
+        tracing::info!("API keys migration (006) applied");
     }
 
     tracing::info!("Database initialized at {}", path);
@@ -714,7 +768,7 @@ pub async fn cleanup_expired_sessions(pool: &SqlitePool) -> Result<u64, sqlx::Er
 
 pub async fn list_zones(pool: &SqlitePool) -> Result<Vec<Zone>, sqlx::Error> {
     sqlx::query_as::<_, Zone>(
-        "SELECT id, name, parent_id, zone_type, created_at FROM zones ORDER BY name"
+        "SELECT id, name, parent_id, zone_type, rate_per_slot, currency, created_at FROM zones ORDER BY name"
     )
     .fetch_all(pool)
     .await
@@ -722,7 +776,7 @@ pub async fn list_zones(pool: &SqlitePool) -> Result<Vec<Zone>, sqlx::Error> {
 
 pub async fn get_zone(pool: &SqlitePool, id: &str) -> Result<Option<Zone>, sqlx::Error> {
     sqlx::query_as::<_, Zone>(
-        "SELECT id, name, parent_id, zone_type, created_at FROM zones WHERE id = ?"
+        "SELECT id, name, parent_id, zone_type, rate_per_slot, currency, created_at FROM zones WHERE id = ?"
     )
     .bind(id)
     .fetch_optional(pool)
@@ -731,7 +785,7 @@ pub async fn get_zone(pool: &SqlitePool, id: &str) -> Result<Option<Zone>, sqlx:
 
 pub async fn get_zone_children(pool: &SqlitePool, parent_id: &str) -> Result<Vec<Zone>, sqlx::Error> {
     sqlx::query_as::<_, Zone>(
-        "SELECT id, name, parent_id, zone_type, created_at FROM zones WHERE parent_id = ? ORDER BY name"
+        "SELECT id, name, parent_id, zone_type, rate_per_slot, currency, created_at FROM zones WHERE parent_id = ? ORDER BY name"
     )
     .bind(parent_id)
     .fetch_all(pool)
@@ -751,12 +805,14 @@ pub async fn get_zone_board_count(pool: &SqlitePool, zone_id: &str) -> Result<i6
 pub async fn create_zone(pool: &SqlitePool, input: &CreateZone) -> Result<Zone, sqlx::Error> {
     let id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO zones (id, name, parent_id, zone_type) VALUES (?, ?, ?, ?)"
+        "INSERT INTO zones (id, name, parent_id, zone_type, rate_per_slot, currency) VALUES (?, ?, ?, ?, ?, COALESCE(?, 'USD'))"
     )
     .bind(&id)
     .bind(&input.name)
     .bind(&input.parent_id)
     .bind(&input.zone_type)
+    .bind(input.rate_per_slot)
+    .bind(&input.currency)
     .execute(pool)
     .await?;
     get_zone(pool, &id).await?.ok_or_else(|| sqlx::Error::RowNotFound)
@@ -764,11 +820,13 @@ pub async fn create_zone(pool: &SqlitePool, input: &CreateZone) -> Result<Zone, 
 
 pub async fn update_zone(pool: &SqlitePool, id: &str, input: &CreateZone) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
-        "UPDATE zones SET name = ?, parent_id = ?, zone_type = ? WHERE id = ?"
+        "UPDATE zones SET name = ?, parent_id = ?, zone_type = ?, rate_per_slot = ?, currency = COALESCE(?, currency) WHERE id = ?"
     )
     .bind(&input.name)
     .bind(&input.parent_id)
     .bind(&input.zone_type)
+    .bind(input.rate_per_slot)
+    .bind(&input.currency)
     .bind(id)
     .execute(pool)
     .await?;
@@ -873,7 +931,7 @@ pub async fn list_campaigns(pool: &SqlitePool, filter: &CampaignFilter) -> Resul
     .await?;
 
     let items = sqlx::query_as::<_, Campaign>(
-        "SELECT id, advertiser_id, name, status, start_date, end_date, notes, created_at, updated_at \
+        "SELECT id, advertiser_id, name, status, start_date, end_date, budget, notes, created_at, updated_at \
          FROM campaigns WHERE \
          (? IS NULL OR advertiser_id = ?) AND \
          (? IS NULL OR status = ?) \
@@ -890,7 +948,7 @@ pub async fn list_campaigns(pool: &SqlitePool, filter: &CampaignFilter) -> Resul
 
 pub async fn get_campaign(pool: &SqlitePool, id: &str) -> Result<Option<Campaign>, sqlx::Error> {
     sqlx::query_as::<_, Campaign>(
-        "SELECT id, advertiser_id, name, status, start_date, end_date, notes, created_at, updated_at \
+        "SELECT id, advertiser_id, name, status, start_date, end_date, budget, notes, created_at, updated_at \
          FROM campaigns WHERE id = ?"
     )
     .bind(id)
@@ -901,14 +959,15 @@ pub async fn get_campaign(pool: &SqlitePool, id: &str) -> Result<Option<Campaign
 pub async fn create_campaign(pool: &SqlitePool, input: &CreateCampaign) -> Result<Campaign, sqlx::Error> {
     let id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO campaigns (id, advertiser_id, name, start_date, end_date, notes) \
-         VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO campaigns (id, advertiser_id, name, start_date, end_date, budget, notes) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&id)
     .bind(&input.advertiser_id)
     .bind(&input.name)
     .bind(&input.start_date)
     .bind(&input.end_date)
+    .bind(input.budget)
     .bind(&input.notes)
     .execute(pool)
     .await?;
@@ -917,13 +976,14 @@ pub async fn create_campaign(pool: &SqlitePool, input: &CreateCampaign) -> Resul
 
 pub async fn update_campaign(pool: &SqlitePool, id: &str, input: &CreateCampaign) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
-        "UPDATE campaigns SET advertiser_id = ?, name = ?, start_date = ?, end_date = ?, notes = ?, \
+        "UPDATE campaigns SET advertiser_id = ?, name = ?, start_date = ?, end_date = ?, budget = ?, notes = ?, \
          updated_at = datetime('now') WHERE id = ?"
     )
     .bind(&input.advertiser_id)
     .bind(&input.name)
     .bind(&input.start_date)
     .bind(&input.end_date)
+    .bind(input.budget)
     .bind(&input.notes)
     .bind(id)
     .execute(pool)
@@ -963,7 +1023,7 @@ pub async fn pause_campaign(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::E
 
 pub async fn list_creatives_by_campaign(pool: &SqlitePool, campaign_id: &str) -> Result<Vec<Creative>, sqlx::Error> {
     sqlx::query_as::<_, Creative>(
-        "SELECT id, campaign_id, media_id, name, duration_secs, status, created_at \
+        "SELECT id, campaign_id, media_id, name, duration_secs, status, approval_status, reviewed_by, reviewed_at, created_at \
          FROM creatives WHERE campaign_id = ? ORDER BY created_at"
     )
     .bind(campaign_id)
@@ -985,7 +1045,7 @@ pub async fn create_creative(pool: &SqlitePool, campaign_id: &str, input: &Creat
     .await?;
 
     sqlx::query_as::<_, Creative>(
-        "SELECT id, campaign_id, media_id, name, duration_secs, status, created_at \
+        "SELECT id, campaign_id, media_id, name, duration_secs, status, approval_status, reviewed_by, reviewed_at, created_at \
          FROM creatives WHERE id = ?"
     )
     .bind(&id)
@@ -995,7 +1055,7 @@ pub async fn create_creative(pool: &SqlitePool, campaign_id: &str, input: &Creat
 
 pub async fn get_creative(pool: &SqlitePool, id: &str) -> Result<Option<Creative>, sqlx::Error> {
     sqlx::query_as::<_, Creative>(
-        "SELECT id, campaign_id, media_id, name, duration_secs, status, created_at \
+        "SELECT id, campaign_id, media_id, name, duration_secs, status, approval_status, reviewed_by, reviewed_at, created_at \
          FROM creatives WHERE id = ?"
     )
     .bind(id)
@@ -1025,6 +1085,28 @@ pub async fn delete_creative(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::
     Ok(result.rows_affected() > 0)
 }
 
+pub async fn approve_creative(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE creatives SET approval_status = 'approved', reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?"
+    )
+    .bind(user_id)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn reject_creative(pool: &SqlitePool, id: &str, user_id: &str) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE creatives SET approval_status = 'rejected', reviewed_by = ?, reviewed_at = datetime('now') WHERE id = ?"
+    )
+    .bind(user_id)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 // ── Bookings ────────────────────────────────────────────────────────────
 
 pub async fn list_bookings(pool: &SqlitePool, filter: &BookingFilter) -> Result<(Vec<Booking>, i64), sqlx::Error> {
@@ -1046,7 +1128,7 @@ pub async fn list_bookings(pool: &SqlitePool, filter: &BookingFilter) -> Result<
     let items = sqlx::query_as::<_, Booking>(
         "SELECT id, campaign_id, booking_type, target_type, target_id, start_date, end_date, \
          start_time, end_time, days_of_week, slot_duration_secs, slots_per_loop, priority, \
-         status, notes, created_at, updated_at \
+         cost_per_slot, estimated_cost, status, notes, created_at, updated_at \
          FROM bookings WHERE \
          (? IS NULL OR campaign_id = ?) AND \
          (? IS NULL OR target_type = ?) AND \
@@ -1067,7 +1149,7 @@ pub async fn get_booking(pool: &SqlitePool, id: &str) -> Result<Option<Booking>,
     sqlx::query_as::<_, Booking>(
         "SELECT id, campaign_id, booking_type, target_type, target_id, start_date, end_date, \
          start_time, end_time, days_of_week, slot_duration_secs, slots_per_loop, priority, \
-         status, notes, created_at, updated_at \
+         cost_per_slot, estimated_cost, status, notes, created_at, updated_at \
          FROM bookings WHERE id = ?"
     )
     .bind(id)
@@ -1082,11 +1164,28 @@ pub async fn create_booking(pool: &SqlitePool, input: &CreateBooking) -> Result<
     let slots_per_loop = input.slots_per_loop.unwrap_or(1);
     let priority = input.priority.unwrap_or(0);
 
+    // Auto-compute cost from zone rate if target is a zone
+    let cost_per_slot = if input.target_type == "zone" {
+        if let Ok(Some(zone)) = get_zone(pool, &input.target_id).await {
+            zone.rate_per_slot
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Estimate total cost: cost_per_slot * slots_per_loop * number_of_days
+    let estimated_cost = cost_per_slot.map(|rate| {
+        let day_count = days.split(',').count() as f64;
+        rate * slots_per_loop as f64 * day_count
+    });
+
     sqlx::query(
         "INSERT INTO bookings (id, campaign_id, booking_type, target_type, target_id, \
          start_date, end_date, start_time, end_time, days_of_week, slot_duration_secs, \
-         slots_per_loop, priority, notes) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+         slots_per_loop, priority, cost_per_slot, estimated_cost, notes) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&id)
     .bind(&input.campaign_id)
@@ -1101,6 +1200,8 @@ pub async fn create_booking(pool: &SqlitePool, input: &CreateBooking) -> Result<
     .bind(slot_duration)
     .bind(slots_per_loop)
     .bind(priority)
+    .bind(cost_per_slot)
+    .bind(estimated_cost)
     .bind(&input.notes)
     .execute(pool)
     .await?;
@@ -1160,7 +1261,7 @@ pub async fn check_booking_conflict(
     let sql = format!(
         "SELECT id, campaign_id, booking_type, target_type, target_id, start_date, end_date, \
          start_time, end_time, days_of_week, slot_duration_secs, slots_per_loop, priority, \
-         status, notes, created_at, updated_at \
+         cost_per_slot, estimated_cost, status, notes, created_at, updated_at \
          FROM bookings WHERE \
          booking_type = 'exclusive' AND \
          target_type = ? AND target_id = ? AND \
@@ -1254,7 +1355,7 @@ pub async fn resolve_booking_board_ids(pool: &SqlitePool, booking: &Booking) -> 
 /// Get approved creatives for a campaign.
 pub async fn get_approved_creatives(pool: &SqlitePool, campaign_id: &str) -> Result<Vec<Creative>, sqlx::Error> {
     sqlx::query_as::<_, Creative>(
-        "SELECT id, campaign_id, media_id, name, duration_secs, status, created_at \
+        "SELECT id, campaign_id, media_id, name, duration_secs, status, approval_status, reviewed_by, reviewed_at, created_at \
          FROM creatives WHERE campaign_id = ? AND status = 'approved' ORDER BY created_at"
     )
     .bind(campaign_id)
@@ -1288,7 +1389,7 @@ pub async fn get_active_bookings_for_board(
     let sql = format!(
         "SELECT id, campaign_id, booking_type, target_type, target_id, start_date, end_date, \
          start_time, end_time, days_of_week, slot_duration_secs, slots_per_loop, priority, \
-         status, notes, created_at, updated_at \
+         cost_per_slot, estimated_cost, status, notes, created_at, updated_at \
          FROM bookings WHERE \
          status IN ('confirmed', 'active') \
          AND start_date <= ? AND end_date >= ? \
@@ -1436,4 +1537,360 @@ pub async fn list_play_logs_by_booking(
     .await?;
 
     Ok((items, total.0))
+}
+
+// ── Campaign Auto-Expiry ───────────────────────────────────────────────
+
+pub async fn expire_campaigns(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE campaigns SET status = 'completed', updated_at = datetime('now') \
+         WHERE status = 'active' AND end_date < date('now')"
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+// ── Campaign Performance ───────────────────────────────────────────────
+
+pub async fn get_campaign_performance(pool: &SqlitePool, campaign_id: &str) -> Result<CampaignPerformance, sqlx::Error> {
+    // Get play stats from play_logs joined via bookings
+    let stats: (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(COUNT(pl.id), 0), COALESCE(SUM(pl.duration_secs), 0) \
+         FROM play_logs pl \
+         JOIN bookings b ON pl.booking_id = b.id \
+         WHERE b.campaign_id = ?"
+    )
+    .bind(campaign_id)
+    .fetch_one(pool)
+    .await?;
+
+    // Get campaign budget
+    let campaign = get_campaign(pool, campaign_id).await?;
+    let budget = campaign.as_ref().and_then(|c| c.budget);
+
+    // Get total estimated cost from bookings
+    let cost: (f64,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(estimated_cost), 0) FROM bookings WHERE campaign_id = ?"
+    )
+    .bind(campaign_id)
+    .fetch_one(pool)
+    .await?;
+
+    let total_plays = stats.0;
+    let total_duration = stats.1;
+    let estimated_reach = total_plays * 30; // rough estimate: 30 viewers per play
+
+    let cost_per_play = if total_plays > 0 && cost.0 > 0.0 {
+        Some(cost.0 / total_plays as f64)
+    } else {
+        None
+    };
+
+    let budget_utilization = budget.map(|b| {
+        if b > 0.0 { (cost.0 / b) * 100.0 } else { 0.0 }
+    });
+
+    Ok(CampaignPerformance {
+        campaign_id: campaign_id.to_string(),
+        total_plays,
+        total_duration_secs: total_duration,
+        estimated_reach,
+        cost_per_play,
+        budget_utilization,
+        total_estimated_cost: cost.0,
+        budget,
+    })
+}
+
+// ── Revenue Reports ────────────────────────────────────────────────────
+
+pub async fn get_revenue_report(
+    pool: &SqlitePool,
+    start_date: Option<&str>,
+    end_date: Option<&str>,
+    group_by: &str,
+) -> Result<RevenueReport, sqlx::Error> {
+    let (group_col, name_col) = match group_by {
+        "advertiser" => (
+            "c.advertiser_id",
+            "COALESCE(a.name, 'Unknown')",
+        ),
+        "zone" => (
+            "b.target_id",
+            "COALESCE(z.name, b.target_id)",
+        ),
+        "campaign" => (
+            "b.campaign_id",
+            "c.name",
+        ),
+        _ => (
+            "c.advertiser_id",
+            "COALESCE(a.name, 'Unknown')",
+        ),
+    };
+
+    let join_clause = match group_by {
+        "advertiser" => "LEFT JOIN advertisers a ON c.advertiser_id = a.id",
+        "zone" => "LEFT JOIN zones z ON b.target_id = z.id",
+        _ => "",
+    };
+
+    let sql = format!(
+        "SELECT {group_col} as group_key, {name_col} as group_name, \
+         COALESCE(SUM(b.estimated_cost), 0) as total_cost, \
+         COUNT(b.id) as booking_count \
+         FROM bookings b \
+         JOIN campaigns c ON b.campaign_id = c.id \
+         {join_clause} \
+         WHERE (? IS NULL OR b.start_date >= ?) \
+         AND (? IS NULL OR b.end_date <= ?) \
+         GROUP BY group_key \
+         ORDER BY total_cost DESC"
+    );
+
+    let rows = sqlx::query_as::<_, RevenueRow>(&sql)
+        .bind(start_date).bind(start_date)
+        .bind(end_date).bind(end_date)
+        .fetch_all(pool)
+        .await?;
+
+    let total = rows.iter().map(|r| r.total_cost).sum();
+
+    Ok(RevenueReport {
+        rows,
+        total,
+        start_date: start_date.map(|s| s.to_string()),
+        end_date: end_date.map(|s| s.to_string()),
+        group_by: group_by.to_string(),
+    })
+}
+
+// ── Alerts ──────────────────────────────────────────────────────────────
+
+pub async fn list_alerts(
+    pool: &SqlitePool,
+    filter: &AlertFilter,
+) -> Result<(Vec<BoardAlert>, i64), sqlx::Error> {
+    let mut where_clauses = Vec::new();
+    if filter.acknowledged.is_some() {
+        where_clauses.push("acknowledged = ?");
+    }
+    if filter.alert_type.is_some() {
+        where_clauses.push("alert_type = ?");
+    }
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let limit = filter.per_page as i64;
+    let offset = ((filter.page.max(1) - 1) * filter.per_page) as i64;
+
+    let count_sql = format!("SELECT COUNT(*) FROM board_alerts {where_sql}");
+    let mut count_q = sqlx::query_scalar::<_, i64>(&count_sql);
+    if let Some(ack) = filter.acknowledged {
+        count_q = count_q.bind(ack);
+    }
+    if let Some(ref t) = filter.alert_type {
+        count_q = count_q.bind(t);
+    }
+    let total: i64 = count_q.fetch_one(pool).await?;
+
+    let data_sql = format!(
+        "SELECT id, board_id, alert_type, severity, message, acknowledged, created_at, acknowledged_at \
+         FROM board_alerts {where_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    );
+    let mut data_q = sqlx::query_as::<_, BoardAlert>(&data_sql);
+    if let Some(ack) = filter.acknowledged {
+        data_q = data_q.bind(ack);
+    }
+    if let Some(ref t) = filter.alert_type {
+        data_q = data_q.bind(t);
+    }
+    data_q = data_q.bind(limit).bind(offset);
+    let items = data_q.fetch_all(pool).await?;
+
+    Ok((items, total))
+}
+
+pub async fn unacknowledged_alert_count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
+    let count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM board_alerts WHERE acknowledged = 0")
+            .fetch_one(pool)
+            .await?;
+    Ok(count.0)
+}
+
+pub async fn acknowledge_alert(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE board_alerts SET acknowledged = 1, acknowledged_at = datetime('now') WHERE id = ?",
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn create_offline_alerts(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    // Find boards that are 'online' but last_seen > 5 minutes ago, mark offline + create alert
+    let stale_boards: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, name FROM boards \
+         WHERE status = 'online' \
+         AND last_seen IS NOT NULL \
+         AND datetime(last_seen) < datetime('now', '-5 minutes')",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut count = 0u64;
+    for (board_id, board_name) in &stale_boards {
+        // Mark board offline
+        sqlx::query("UPDATE boards SET status = 'offline' WHERE id = ?")
+            .bind(board_id)
+            .execute(pool)
+            .await?;
+
+        // Create alert (avoid duplicates — skip if unacknowledged alert already exists)
+        let existing: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM board_alerts \
+             WHERE board_id = ? AND alert_type = 'offline' AND acknowledged = 0",
+        )
+        .bind(board_id)
+        .fetch_one(pool)
+        .await?;
+
+        if existing.0 == 0 {
+            let alert_id = Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO board_alerts (id, board_id, alert_type, severity, message) \
+                 VALUES (?, ?, 'offline', 'warning', ?)",
+            )
+            .bind(&alert_id)
+            .bind(board_id)
+            .bind(format!("Board '{}' went offline", board_name))
+            .execute(pool)
+            .await?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+pub async fn create_campaign_expiring_alerts(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
+    // Find active campaigns ending within 3 days
+    let expiring: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, name FROM campaigns \
+         WHERE status = 'active' \
+         AND date(end_date) <= date('now', '+3 days') \
+         AND date(end_date) >= date('now')",
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut count = 0u64;
+    for (campaign_id, campaign_name) in &expiring {
+        // Skip if unacknowledged alert already exists for this campaign
+        let existing: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM board_alerts \
+             WHERE message LIKE ? AND alert_type = 'campaign_expiring' AND acknowledged = 0",
+        )
+        .bind(format!("%{}%", campaign_id))
+        .fetch_one(pool)
+        .await?;
+
+        if existing.0 == 0 {
+            let alert_id = Uuid::new_v4().to_string();
+            sqlx::query(
+                "INSERT INTO board_alerts (id, board_id, alert_type, severity, message) \
+                 VALUES (?, NULL, 'campaign_expiring', 'info', ?)",
+            )
+            .bind(&alert_id)
+            .bind(format!(
+                "Campaign '{}' ({}) is expiring soon",
+                campaign_name, campaign_id
+            ))
+            .execute(pool)
+            .await?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
+// ── API Keys ────────────────────────────────────────────────────────────
+
+pub async fn create_api_key(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+    name: &str,
+    key_hash: &str,
+    preview: &str,
+) -> Result<ApiKey, sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO api_keys (id, user_id, name, key_hash, preview) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(user_id)
+    .bind(name)
+    .bind(key_hash)
+    .bind(preview)
+    .execute(pool)
+    .await?;
+
+    get_api_key(pool, id).await.map(|o| o.unwrap())
+}
+
+pub async fn get_api_key(pool: &SqlitePool, id: &str) -> Result<Option<ApiKey>, sqlx::Error> {
+    sqlx::query_as::<_, ApiKey>(
+        "SELECT id, user_id, name, key_hash, preview, created_at, last_used_at FROM api_keys WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn list_api_keys(pool: &SqlitePool, user_id: &str) -> Result<Vec<ApiKey>, sqlx::Error> {
+    sqlx::query_as::<_, ApiKey>(
+        "SELECT id, user_id, name, key_hash, preview, created_at, last_used_at \
+         FROM api_keys WHERE user_id = ? ORDER BY created_at DESC",
+    )
+    .bind(user_id)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn delete_api_key(
+    pool: &SqlitePool,
+    id: &str,
+    user_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM api_keys WHERE id = ? AND user_id = ?")
+        .bind(id)
+        .bind(user_id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn get_user_by_api_key_hash(
+    pool: &SqlitePool,
+    key_hash: &str,
+) -> Result<Option<User>, sqlx::Error> {
+    // Update last_used_at
+    sqlx::query("UPDATE api_keys SET last_used_at = datetime('now') WHERE key_hash = ?")
+        .bind(key_hash)
+        .execute(pool)
+        .await?;
+
+    sqlx::query_as::<_, User>(
+        "SELECT u.id, u.username, u.password_hash, u.role, u.created_at \
+         FROM users u JOIN api_keys ak ON u.id = ak.user_id \
+         WHERE ak.key_hash = ?",
+    )
+    .bind(key_hash)
+    .fetch_optional(pool)
+    .await
 }

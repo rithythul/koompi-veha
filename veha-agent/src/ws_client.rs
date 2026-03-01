@@ -1,7 +1,8 @@
+use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use veha_core::command::{PlayerCommand, PlayerStatus};
 use serde::{Deserialize, Serialize};
-use tokio::time::{self, Duration};
+use tokio::time::{self, Duration, Instant};
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
@@ -110,8 +111,18 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
 
     // --- Main loop: listen for commands & send periodic status ---
     let socket_path = config.player_socket.clone();
+    let api_base_url = config.api_base_url();
     let report_interval = Duration::from_secs(config.report_interval_secs);
     let mut status_ticker = time::interval(report_interval);
+
+    // Play log tracking: detect when the player transitions between items.
+    let mut prev_item: Option<String> = None; // source of previous item
+    let mut prev_index: usize = 0;
+    let mut prev_booking_id: Option<String> = None;
+    let mut prev_creative_id: Option<String> = None;
+    let mut prev_media_id: Option<String> = None;
+    let mut item_started_at: Option<Instant> = None;
+    let mut item_started_at_utc: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -119,7 +130,7 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        handle_server_message(&text, &socket_path).await;
+                        handle_server_message(&text, &socket_path, &api_base_url).await;
                     }
                     Some(Ok(Message::Ping(data))) => {
                         ws_tx.send(Message::Pong(data)).await?;
@@ -140,6 +151,67 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
             _ = status_ticker.tick() => {
                 match player_client::get_status(&socket_path).await {
                     Ok(status) => {
+                        // Detect item transition and send play report for the previous item.
+                        let current_item = status.current_item.clone();
+                        let current_index = status.current_index;
+                        let is_playing = status.state == "Playing";
+
+                        let item_changed = is_playing
+                            && prev_item.is_some()
+                            && (current_item != prev_item || current_index != prev_index);
+
+                        // Also report if the player stopped/paused after playing something.
+                        let playback_ended = !is_playing
+                            && prev_item.is_some()
+                            && item_started_at.is_some();
+
+                        if item_changed || playback_ended {
+                            if let (Some(started_at), Some(started_utc)) =
+                                (item_started_at.take(), item_started_at_utc.take())
+                            {
+                                let duration = started_at.elapsed();
+                                let now_utc = Utc::now().to_rfc3339();
+                                let report = WsMessage::PlayReport {
+                                    booking_id: prev_booking_id.take(),
+                                    creative_id: prev_creative_id.take(),
+                                    media_id: prev_media_id.take(),
+                                    started_at: started_utc,
+                                    ended_at: now_utc,
+                                    duration_secs: duration.as_secs() as u32,
+                                    status: if playback_ended {
+                                        "completed".into()
+                                    } else {
+                                        "played".into()
+                                    },
+                                };
+                                if let Ok(report_json) = serde_json::to_string(&report) {
+                                    if let Err(e) = ws_tx.send(Message::Text(report_json.into())).await {
+                                        error!("Failed to send play report: {e}");
+                                        break;
+                                    }
+                                    debug!("Sent play report for previous item");
+                                }
+                            }
+                        }
+
+                        // Track current item for next comparison.
+                        if is_playing && current_item.is_some() {
+                            if item_started_at.is_none() || item_changed {
+                                // New item started playing.
+                                item_started_at = Some(Instant::now());
+                                item_started_at_utc = Some(Utc::now().to_rfc3339());
+                                prev_booking_id = status.active_booking_id.clone();
+                                prev_creative_id = status.active_creative_id.clone();
+                                prev_media_id = status.active_media_id.clone();
+                            }
+                        } else {
+                            item_started_at = None;
+                            item_started_at_utc = None;
+                        }
+                        prev_item = current_item;
+                        prev_index = current_index;
+
+                        // Send the status report.
                         let msg = serde_json::to_string(&WsMessage::Status { status })?;
                         if let Err(e) = ws_tx.send(Message::Text(msg.into())).await {
                             error!("Failed to send status: {e}");
@@ -159,6 +231,7 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
                             playlist_name: None,
                             active_booking_id: None,
                             active_creative_id: None,
+                            active_media_id: None,
                             uptime_secs: None,
                         };
                         let msg = serde_json::to_string(&WsMessage::Status { status })?;
@@ -172,8 +245,31 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 
+/// Transform a ResolvedPlaylist JSON string (with `board_id`) into a Playlist
+/// JSON string (with `name`), and convert relative media URLs to absolute.
+fn transform_playlist(raw: &str, api_base_url: &str) -> Result<String, serde_json::Error> {
+    let mut v: serde_json::Value = serde_json::from_str(raw)?;
+    if let Some(obj) = v.as_object_mut() {
+        // Rename board_id → name (Playlist expects `name`, ResolvedPlaylist sends `board_id`)
+        if let Some(board_id) = obj.remove("board_id") {
+            obj.entry("name").or_insert(board_id);
+        }
+        // Convert relative source URLs to absolute
+        if let Some(items) = obj.get_mut("items").and_then(|i| i.as_array_mut()) {
+            for item in items {
+                if let Some(source) = item.get_mut("source").and_then(|s| s.as_str().map(String::from)) {
+                    if source.starts_with('/') {
+                        item["source"] = serde_json::Value::String(format!("{api_base_url}{source}"));
+                    }
+                }
+            }
+        }
+    }
+    serde_json::to_string(&v)
+}
+
 /// Handle a text message received from the API server.
-async fn handle_server_message(text: &str, socket_path: &str) {
+async fn handle_server_message(text: &str, socket_path: &str, api_base_url: &str) {
     match serde_json::from_str::<WsMessage>(text) {
         Ok(WsMessage::Command { command }) => {
             info!("Received command: {command:?}");
@@ -184,8 +280,15 @@ async fn handle_server_message(text: &str, socket_path: &str) {
         }
         Ok(WsMessage::ScheduleUpdate { playlist, active_booking_ids }) => {
             info!("Received schedule update with {} active bookings", active_booking_ids.len());
-            // Forward as LoadPlaylist command to the local player
-            let command = PlayerCommand::LoadPlaylist(playlist);
+            // Transform: rename board_id→name, make URLs absolute
+            let playlist_json = match transform_playlist(&playlist, api_base_url) {
+                Ok(p) => p,
+                Err(e) => {
+                    error!("Failed to transform playlist: {e}");
+                    return;
+                }
+            };
+            let command = PlayerCommand::LoadPlaylist(playlist_json);
             match player_client::send_command(socket_path, &command).await {
                 Ok(resp) => debug!("Player loaded schedule: {resp}"),
                 Err(e) => error!("Failed to load schedule: {e}"),
