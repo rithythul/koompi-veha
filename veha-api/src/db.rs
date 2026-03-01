@@ -140,84 +140,69 @@ pub async fn create_board(pool: &SqlitePool, input: &CreateBoard) -> Result<Boar
 }
 
 pub async fn update_board(pool: &SqlitePool, id: &str, input: &UpdateBoard) -> Result<bool, sqlx::Error> {
-    let mut set_clauses = Vec::new();
+    // Build SET clauses with positional bind parameters to prevent SQL injection.
+    let mut set_clauses: Vec<String> = Vec::new();
+    let mut binds: Vec<Option<String>> = Vec::new();
 
-    if let Some(ref name) = input.name {
-        set_clauses.push(format!("name = '{}'", name.replace('\'', "''")));
+    macro_rules! set_field {
+        // Required string field: Some(value) => SET col = ?
+        (required $col:literal, $field:expr) => {
+            if let Some(ref v) = $field {
+                set_clauses.push(format!("{} = ?", $col));
+                binds.push(Some(v.clone()));
+            }
+        };
+        // Nullable string field: Some(Some(v)) => SET col = ?, Some(None) => SET col = NULL
+        (nullable $col:literal, $field:expr) => {
+            if let Some(ref opt) = $field {
+                set_clauses.push(format!("{} = ?", $col));
+                binds.push(opt.clone());
+            }
+        };
+        // Nullable numeric field (f64): convert to string for binding
+        (nullable_f64 $col:literal, $field:expr) => {
+            if let Some(ref opt) = $field {
+                set_clauses.push(format!("{} = ?", $col));
+                binds.push(opt.map(|v| v.to_string()));
+            }
+        };
+        // Nullable integer field: convert to string for binding
+        (nullable_i32 $col:literal, $field:expr) => {
+            if let Some(ref opt) = $field {
+                set_clauses.push(format!("{} = ?", $col));
+                binds.push(opt.map(|v: i32| v.to_string()));
+            }
+        };
     }
-    if let Some(ref group_id) = input.group_id {
-        match group_id {
-            Some(gid) => set_clauses.push(format!("group_id = '{}'", gid.replace('\'', "''"))),
-            None => set_clauses.push("group_id = NULL".to_string()),
-        }
-    }
-    if let Some(ref zone_id) = input.zone_id {
-        match zone_id {
-            Some(zid) => set_clauses.push(format!("zone_id = '{}'", zid.replace('\'', "''"))),
-            None => set_clauses.push("zone_id = NULL".to_string()),
-        }
-    }
-    if let Some(ref lat) = input.latitude {
-        match lat {
-            Some(v) => set_clauses.push(format!("latitude = {}", v)),
-            None => set_clauses.push("latitude = NULL".to_string()),
-        }
-    }
-    if let Some(ref lng) = input.longitude {
-        match lng {
-            Some(v) => set_clauses.push(format!("longitude = {}", v)),
-            None => set_clauses.push("longitude = NULL".to_string()),
-        }
-    }
-    if let Some(ref address) = input.address {
-        match address {
-            Some(a) => set_clauses.push(format!("address = '{}'", a.replace('\'', "''"))),
-            None => set_clauses.push("address = NULL".to_string()),
-        }
-    }
-    if let Some(ref bt) = input.board_type {
-        set_clauses.push(format!("board_type = '{}'", bt.replace('\'', "''")));
-    }
-    if let Some(ref sw) = input.screen_width {
-        match sw {
-            Some(v) => set_clauses.push(format!("screen_width = {}", v)),
-            None => set_clauses.push("screen_width = NULL".to_string()),
-        }
-    }
-    if let Some(ref sh) = input.screen_height {
-        match sh {
-            Some(v) => set_clauses.push(format!("screen_height = {}", v)),
-            None => set_clauses.push("screen_height = NULL".to_string()),
-        }
-    }
-    if let Some(ref o) = input.orientation {
-        set_clauses.push(format!("orientation = '{}'", o.replace('\'', "''")));
-    }
-    if let Some(ref sm) = input.sell_mode {
-        set_clauses.push(format!("sell_mode = '{}'", sm.replace('\'', "''")));
-    }
-    if let Some(ref ohs) = input.operating_hours_start {
-        match ohs {
-            Some(v) => set_clauses.push(format!("operating_hours_start = '{}'", v.replace('\'', "''"))),
-            None => set_clauses.push("operating_hours_start = NULL".to_string()),
-        }
-    }
-    if let Some(ref ohe) = input.operating_hours_end {
-        match ohe {
-            Some(v) => set_clauses.push(format!("operating_hours_end = '{}'", v.replace('\'', "''"))),
-            None => set_clauses.push("operating_hours_end = NULL".to_string()),
-        }
-    }
+
+    set_field!(required "name", input.name);
+    set_field!(nullable "group_id", input.group_id);
+    set_field!(nullable "zone_id", input.zone_id);
+    set_field!(nullable_f64 "latitude", input.latitude);
+    set_field!(nullable_f64 "longitude", input.longitude);
+    set_field!(nullable "address", input.address);
+    set_field!(required "board_type", input.board_type);
+    set_field!(nullable_i32 "screen_width", input.screen_width);
+    set_field!(nullable_i32 "screen_height", input.screen_height);
+    set_field!(required "orientation", input.orientation);
+    set_field!(required "sell_mode", input.sell_mode);
+    set_field!(nullable "operating_hours_start", input.operating_hours_start);
+    set_field!(nullable "operating_hours_end", input.operating_hours_end);
 
     if set_clauses.is_empty() {
         return Ok(false);
     }
 
     let sql = format!("UPDATE boards SET {} WHERE id = ?", set_clauses.join(", "));
-    let result = sqlx::query(&sql)
-        .bind(id)
-        .execute(pool)
-        .await?;
+    let mut query = sqlx::query(&sql);
+    for bind in &binds {
+        query = match bind {
+            Some(v) => query.bind(v),
+            None => query.bind(None::<String>),
+        };
+    }
+    query = query.bind(id);
+    let result = query.execute(pool).await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -348,6 +333,15 @@ pub async fn insert_media(pool: &SqlitePool, media: &Media) -> Result<(), sqlx::
     .execute(pool)
     .await?;
     Ok(())
+}
+
+pub async fn rename_media(pool: &SqlitePool, id: &str, name: &str) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("UPDATE media SET name = ? WHERE id = ?")
+        .bind(name)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn delete_media(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
@@ -493,6 +487,35 @@ pub async fn create_schedule(
     .await
 }
 
+pub async fn get_schedule(pool: &SqlitePool, id: &str) -> Result<Option<Schedule>, sqlx::Error> {
+    sqlx::query_as::<_, Schedule>(
+        "SELECT id, board_id, group_id, playlist_id, start_time, end_time, days_of_week, priority, created_at FROM schedules WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_schedule(pool: &SqlitePool, id: &str, input: &CreateSchedule) -> Result<bool, sqlx::Error> {
+    let days = input.days_of_week.clone().unwrap_or_else(|| "0,1,2,3,4,5,6".to_string());
+    let priority = input.priority.unwrap_or(0);
+
+    let result = sqlx::query(
+        "UPDATE schedules SET board_id = ?, group_id = ?, playlist_id = ?, start_time = ?, end_time = ?, days_of_week = ?, priority = ? WHERE id = ?",
+    )
+    .bind(&input.board_id)
+    .bind(&input.group_id)
+    .bind(&input.playlist_id)
+    .bind(&input.start_time)
+    .bind(&input.end_time)
+    .bind(&days)
+    .bind(priority)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn delete_schedule(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
     let result = sqlx::query("DELETE FROM schedules WHERE id = ?")
         .bind(id)
@@ -537,6 +560,98 @@ pub async fn user_count(pool: &SqlitePool) -> Result<i64, sqlx::Error> {
         .fetch_one(pool)
         .await?;
     Ok(row.0)
+}
+
+pub async fn list_users(
+    pool: &SqlitePool,
+    page: u32,
+    per_page: u32,
+) -> Result<(Vec<User>, i64), sqlx::Error> {
+    let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users")
+        .fetch_one(pool)
+        .await?;
+
+    let offset = ((page.max(1) - 1) * per_page) as i64;
+    let limit = per_page.min(200) as i64;
+
+    let users = sqlx::query_as::<_, User>(
+        "SELECT id, username, password_hash, role, created_at FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?",
+    )
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(pool)
+    .await?;
+
+    Ok((users, total.0))
+}
+
+pub async fn get_user(pool: &SqlitePool, id: &str) -> Result<Option<User>, sqlx::Error> {
+    sqlx::query_as::<_, User>(
+        "SELECT id, username, password_hash, role, created_at FROM users WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_user(
+    pool: &SqlitePool,
+    id: &str,
+    username: Option<&str>,
+    role: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    // Build dynamic SET clauses
+    let mut sets = Vec::new();
+    if username.is_some() {
+        sets.push("username = ?");
+    }
+    if role.is_some() {
+        sets.push("role = ?");
+    }
+    if sets.is_empty() {
+        return Ok(false);
+    }
+
+    let sql = format!("UPDATE users SET {} WHERE id = ?", sets.join(", "));
+    let mut query = sqlx::query(&sql);
+
+    if let Some(u) = username {
+        query = query.bind(u);
+    }
+    if let Some(r) = role {
+        query = query.bind(r);
+    }
+    query = query.bind(id);
+
+    let result = query.execute(pool).await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn update_user_password(
+    pool: &SqlitePool,
+    id: &str,
+    password_hash: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+        .bind(password_hash)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+pub async fn delete_user(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
+    // Also delete user's sessions
+    sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+    let result = sqlx::query("DELETE FROM users WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn create_session(
@@ -866,6 +981,30 @@ pub async fn create_creative(pool: &SqlitePool, campaign_id: &str, input: &Creat
     .await
 }
 
+pub async fn get_creative(pool: &SqlitePool, id: &str) -> Result<Option<Creative>, sqlx::Error> {
+    sqlx::query_as::<_, Creative>(
+        "SELECT id, campaign_id, media_id, name, duration_secs, status, created_at \
+         FROM creatives WHERE id = ?"
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_creative(pool: &SqlitePool, id: &str, input: &CreateCreative, status: Option<&str>) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE creatives SET media_id = ?, name = ?, duration_secs = ?, status = COALESCE(?, status) WHERE id = ?"
+    )
+    .bind(&input.media_id)
+    .bind(&input.name)
+    .bind(input.duration_secs)
+    .bind(status)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn delete_creative(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
     let result = sqlx::query("DELETE FROM creatives WHERE id = ?")
         .bind(id)
@@ -996,6 +1135,39 @@ pub async fn delete_booking(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::E
     Ok(result.rows_affected() > 0)
 }
 
+/// Check for overlapping exclusive bookings on same target + time range.
+pub async fn check_booking_conflict(
+    pool: &SqlitePool,
+    target_type: &str,
+    target_id: &str,
+    start_date: &str,
+    end_date: &str,
+    exclude_id: Option<&str>,
+) -> Result<Option<Booking>, sqlx::Error> {
+    let exclude_clause = if exclude_id.is_some() { "AND id != ?" } else { "" };
+    let sql = format!(
+        "SELECT id, campaign_id, booking_type, target_type, target_id, start_date, end_date, \
+         start_time, end_time, days_of_week, slot_duration_secs, slots_per_loop, priority, \
+         status, notes, created_at, updated_at \
+         FROM bookings WHERE \
+         booking_type = 'exclusive' AND \
+         target_type = ? AND target_id = ? AND \
+         status IN ('confirmed', 'active') AND \
+         start_date <= ? AND end_date >= ? \
+         {exclude_clause} \
+         LIMIT 1"
+    );
+    let mut query = sqlx::query_as::<_, Booking>(&sql)
+        .bind(target_type)
+        .bind(target_id)
+        .bind(end_date) // their start <= our end
+        .bind(start_date); // their end >= our start
+    if let Some(eid) = exclude_id {
+        query = query.bind(eid);
+    }
+    query.fetch_optional(pool).await
+}
+
 // ── Resolution helpers ─────────────────────────────────────────────────
 
 /// Get zone ancestry (zone_id + all parent IDs up the tree).
@@ -1013,6 +1185,58 @@ pub async fn get_zone_ancestry(pool: &SqlitePool, zone_id: &str) -> Result<Vec<S
         }
     }
     Ok(ids)
+}
+
+/// Get all descendant zone IDs (children, grandchildren, etc.) for a zone.
+pub async fn get_zone_descendant_ids(pool: &SqlitePool, zone_id: &str) -> Result<Vec<String>, sqlx::Error> {
+    let mut result = Vec::new();
+    let mut queue = vec![zone_id.to_string()];
+    while let Some(current) = queue.pop() {
+        let children: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM zones WHERE parent_id = ?",
+        )
+        .bind(&current)
+        .fetch_all(pool)
+        .await?;
+        for (child_id,) in children {
+            result.push(child_id.clone());
+            queue.push(child_id);
+        }
+    }
+    Ok(result)
+}
+
+/// Given a booking, resolve all board IDs that are affected by it.
+pub async fn resolve_booking_board_ids(pool: &SqlitePool, booking: &Booking) -> Result<Vec<String>, sqlx::Error> {
+    match booking.target_type.as_str() {
+        "board" => Ok(vec![booking.target_id.clone()]),
+        "zone" => {
+            // Get all boards in this zone and all descendant zones
+            let mut zone_ids = vec![booking.target_id.clone()];
+            zone_ids.extend(get_zone_descendant_ids(pool, &booking.target_id).await?);
+            if zone_ids.is_empty() {
+                return Ok(vec![]);
+            }
+            let placeholders = zone_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let sql = format!("SELECT id FROM boards WHERE zone_id IN ({placeholders})");
+            let mut query = sqlx::query_as::<_, (String,)>(&sql);
+            for zid in &zone_ids {
+                query = query.bind(zid);
+            }
+            let rows = query.fetch_all(pool).await?;
+            Ok(rows.into_iter().map(|(id,)| id).collect())
+        }
+        "group" => {
+            let rows: Vec<(String,)> = sqlx::query_as(
+                "SELECT id FROM boards WHERE group_id = ?",
+            )
+            .bind(&booking.target_id)
+            .fetch_all(pool)
+            .await?;
+            Ok(rows.into_iter().map(|(id,)| id).collect())
+        }
+        _ => Ok(vec![]),
+    }
 }
 
 /// Get approved creatives for a campaign.

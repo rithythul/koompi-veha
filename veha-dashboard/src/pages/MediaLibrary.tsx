@@ -1,11 +1,12 @@
 import { useState, useCallback, useRef } from 'react'
-import { Image, Trash2, Download, Eye, Film, Upload, LayoutGrid, List } from 'lucide-react'
-import { useMedia, useDeleteMedia, mediaDownloadUrl, uploadMediaWithProgress } from '../api/media'
+import { Image, Trash2, Download, Eye, Film, Upload, LayoutGrid, List, Pencil } from 'lucide-react'
+import { useMedia, useDeleteMedia, useRenameMedia, mediaDownloadUrl, uploadMediaWithProgress } from '../api/media'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { Input } from '../components/ui/Input'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { DropZone } from '../components/ui/DropZone'
@@ -18,10 +19,13 @@ export default function MediaLibrary() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const { data, isLoading } = useMedia({ page, per_page: 24 })
   const deleteMedia = useDeleteMedia()
+  const renameMedia = useRenameMedia()
   const queryClient = useQueryClient()
   const toast = useToast()
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [previewId, setPreviewId] = useState<string | null>(null)
+  const [renameId, setRenameId] = useState<string | null>(null)
+  const [renameName, setRenameName] = useState('')
   const [uploads, setUploads] = useState<{ name: string; progress: number }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -57,6 +61,22 @@ export default function MediaLibrary() {
       onSuccess: () => {
         toast.success('Media deleted')
         setDeleteId(null)
+      },
+      onError: (err) => toast.error(err.message),
+    })
+  }
+
+  const openRename = (id: string, currentName: string) => {
+    setRenameId(id)
+    setRenameName(currentName)
+  }
+
+  const handleRename = () => {
+    if (!renameId || !renameName.trim()) return
+    renameMedia.mutate({ id: renameId, name: renameName.trim() }, {
+      onSuccess: () => {
+        toast.success('Media renamed')
+        setRenameId(null)
       },
       onError: (err) => toast.error(err.message),
     })
@@ -181,6 +201,9 @@ export default function MediaLibrary() {
                   <td className="px-4 py-2 text-text-muted text-xs">{formatDate(media.uploaded_at)}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openRename(media.id, media.name)} title="Rename">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => setPreviewId(media.id)}>
                         <Eye className="w-3.5 h-3.5" />
                       </Button>
@@ -222,6 +245,9 @@ export default function MediaLibrary() {
                 )}
                 {/* Overlay actions */}
                 <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <Button variant="secondary" size="sm" onClick={() => openRename(media.id, media.name)} title="Rename">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
                   <Button variant="secondary" size="sm" onClick={() => setPreviewId(media.id)}>
                     <Eye className="w-3.5 h-3.5" />
                   </Button>
@@ -284,6 +310,29 @@ export default function MediaLibrary() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Rename Modal */}
+      <Modal
+        open={!!renameId}
+        onClose={() => setRenameId(null)}
+        title="Rename Media"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRenameId(null)}>Cancel</Button>
+            <Button onClick={handleRename} loading={renameMedia.isPending} disabled={!renameName.trim()}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <Input
+          label="Name"
+          value={renameName}
+          onChange={(e) => setRenameName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') handleRename() }}
+          autoFocus
+        />
       </Modal>
 
       <ConfirmDialog

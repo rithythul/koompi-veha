@@ -1,18 +1,23 @@
 use std::path::PathBuf;
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Multipart, Path, Query, State, WebSocketUpgrade},
     http::{HeaderMap, StatusCode},
     middleware,
     response::IntoResponse,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
 };
 use tokio::io::AsyncWriteExt;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
 
 use crate::{AppState, auth, db, models::*, ws};
+
+/// Roles that can perform write operations (create/update/delete).
+const WRITE_ROLES: &[&str] = &["admin", "operator"];
+/// Admin-only operations (user management).
+const ADMIN_ROLES: &[&str] = &["admin"];
 
 /// Build the full application router.
 pub fn create_router(state: AppState) -> Router {
@@ -34,7 +39,7 @@ pub fn create_router(state: AppState) -> Router {
         // Media
         .route("/api/media", get(list_media).post(upload_media))
         .route("/api/media/{id}/download", get(download_media))
-        .route("/api/media/{id}", delete(delete_media))
+        .route("/api/media/{id}", put(rename_media_handler).delete(delete_media))
         // Playlists
         .route("/api/playlists", get(list_playlists).post(create_playlist))
         .route(
@@ -46,7 +51,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/schedules",
             get(list_schedules).post(create_schedule),
         )
-        .route("/api/schedules/{id}", delete(delete_schedule))
+        .route(
+            "/api/schedules/{id}",
+            get(get_schedule_handler).put(update_schedule_handler).delete(delete_schedule),
+        )
         // Zones
         .route("/api/zones", get(list_zones_handler).post(create_zone_handler))
         .route(
@@ -72,7 +80,10 @@ pub fn create_router(state: AppState) -> Router {
             get(list_creatives_handler).post(create_creative_handler),
         )
         // Creatives
-        .route("/api/creatives/{id}", delete(delete_creative_handler))
+        .route(
+            "/api/creatives/{id}",
+            get(get_creative_handler).put(update_creative_handler).delete(delete_creative_handler),
+        )
         // Bookings
         .route("/api/bookings", get(list_bookings_handler).post(create_booking_handler))
         .route(
@@ -85,8 +96,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/bookings/{id}/play-logs", get(booking_play_logs_handler))
         // Schedule Resolution
         .route("/api/boards/{id}/resolved-schedule", get(get_resolved_schedule_handler))
+        // Users (admin only)
+        .route("/api/users", get(list_users_handler).post(create_user_handler))
+        .route(
+            "/api/users/{id}",
+            put(update_user_handler).delete(delete_user_handler),
+        )
         // WebSocket
         .route("/ws/agent", get(ws_agent_handler))
+        .route("/ws/dashboard", get(ws_dashboard_handler))
         // Auth middleware — applied to all routes above
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -94,7 +112,12 @@ pub fn create_router(state: AppState) -> Router {
         ))
         .with_state(state)
         // Serve the web dashboard as static files (fallback for non-API routes)
-        .fallback_service(ServeDir::new("static").append_index_html_on_directories(true))
+        // SPA fallback: serve index.html for any route not matching a static file
+        .fallback_service(
+            ServeDir::new("static")
+                .append_index_html_on_directories(true)
+                .not_found_service(ServeFile::new("static/index.html")),
+        )
 }
 
 // ── Health ──────────────────────────────────────────────────────────────
@@ -212,9 +235,11 @@ async fn get_board(
 }
 
 async fn create_board(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreateBoard>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::create_board(&state.db, &input).await {
         Ok(board) => (StatusCode::CREATED, Json(board)).into_response(),
         Err(e) => {
@@ -225,12 +250,20 @@ async fn create_board(
 }
 
 async fn update_board_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(input): Json<UpdateBoard>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    // If zone or group changed, we need to push updated schedule
+    let zone_or_group_changed = input.zone_id.is_some() || input.group_id.is_some();
+
     match db::update_board(&state.db, &id, &input).await {
         Ok(true) => {
+            if zone_or_group_changed {
+                ws::push_schedule_to_boards(state.agents.clone(), state.db.clone(), vec![id.clone()]);
+            }
             match db::get_board(&state.db, &id).await {
                 Ok(Some(board)) => Json(board).into_response(),
                 _ => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -245,10 +278,12 @@ async fn update_board_handler(
 }
 
 async fn send_board_command(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<CommandRequest>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     let sent = ws::send_command_to_board(&state.agents, &id, &req.command).await;
     if sent {
         StatusCode::OK.into_response()
@@ -278,9 +313,11 @@ async fn list_groups(
 }
 
 async fn create_group(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreateGroup>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::create_group(&state.db, &input).await {
         Ok(group) => (StatusCode::CREATED, Json(group)).into_response(),
         Err(e) => {
@@ -291,9 +328,11 @@ async fn create_group(
 }
 
 async fn delete_group(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::delete_group(&state.db, &id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -305,10 +344,12 @@ async fn delete_group(
 }
 
 async fn send_group_command(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(group_id): Path<String>,
     Json(req): Json<CommandRequest>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     // Find all boards in the group and send the command to each connected one.
     let boards = match db::get_boards_by_group(&state.db, &group_id).await {
         Ok(b) => b,
@@ -355,10 +396,23 @@ async fn list_media(
 /// Maximum upload size: 2GB
 const MAX_UPLOAD_SIZE: u64 = 2 * 1024 * 1024 * 1024;
 
+/// Allowed MIME types for media uploads.
+const ALLOWED_MIME_TYPES: &[&str] = &[
+    "video/mp4",
+    "video/webm",
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/bmp",
+    "image/gif",
+];
+
 async fn upload_media(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     let id = Uuid::new_v4().to_string();
     let mut original_name = String::new();
     let mut filename = String::new();
@@ -375,6 +429,13 @@ async fn upload_media(
 
             if let Some(ct) = field.content_type() {
                 mime = ct.to_string();
+            }
+
+            if !ALLOWED_MIME_TYPES.contains(&mime.as_str()) {
+                return (
+                    StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    format!("Unsupported file type: {}. Allowed: video/mp4, video/webm, image/png, image/jpeg, image/webp, image/bmp, image/gif", mime),
+                ).into_response();
             }
 
             let ext = original_name
@@ -508,9 +569,11 @@ async fn download_media(
 }
 
 async fn delete_media(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     // Get media info first so we can delete the file.
     let media = match db::get_media(&state.db, &id).await {
         Ok(Some(m)) => m,
@@ -530,6 +593,32 @@ async fn delete_media(
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("delete_media: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn rename_media_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    let name = match body.get("name").and_then(|v| v.as_str()) {
+        Some(n) if !n.trim().is_empty() => n.trim().to_string(),
+        _ => return (StatusCode::BAD_REQUEST, "Missing or empty 'name'").into_response(),
+    };
+    match db::rename_media(&state.db, &id, &name).await {
+        Ok(true) => {
+            match db::get_media(&state.db, &id).await {
+                Ok(Some(m)) => Json(m).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("rename_media: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
@@ -576,9 +665,11 @@ async fn get_playlist(
 }
 
 async fn create_playlist(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreatePlaylist>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     let id = Uuid::new_v4().to_string();
     let items_json = serde_json::to_string(&input.items).unwrap_or_else(|_| "[]".to_string());
 
@@ -592,10 +683,12 @@ async fn create_playlist(
 }
 
 async fn update_playlist(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(input): Json<CreatePlaylist>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     let items_json = serde_json::to_string(&input.items).unwrap_or_else(|_| "[]".to_string());
 
     match db::update_playlist(&state.db, &id, &input.name, &items_json, input.loop_playlist).await {
@@ -614,9 +707,11 @@ async fn update_playlist(
 }
 
 async fn delete_playlist(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::delete_playlist(&state.db, &id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -661,9 +756,11 @@ async fn list_schedules(
 }
 
 async fn create_schedule(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreateSchedule>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::create_schedule(&state.db, &input).await {
         Ok(schedule) => (StatusCode::CREATED, Json(schedule)).into_response(),
         Err(e) => {
@@ -673,10 +770,48 @@ async fn create_schedule(
     }
 }
 
-async fn delete_schedule(
+async fn get_schedule_handler(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    match db::get_schedule(&state.db, &id).await {
+        Ok(Some(schedule)) => Json(schedule).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("get_schedule: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn update_schedule_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<CreateSchedule>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    match db::update_schedule(&state.db, &id, &input).await {
+        Ok(true) => {
+            match db::get_schedule(&state.db, &id).await {
+                Ok(Some(schedule)) => Json(schedule).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update_schedule: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_schedule(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::delete_schedule(&state.db, &id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -693,7 +828,16 @@ async fn ws_agent_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| ws::handle_agent_socket(socket, state.agents, state.db, state.api_key))
+    ws.on_upgrade(move |socket| {
+        ws::handle_agent_socket(socket, state.agents, state.dashboards, state.db, state.api_key)
+    })
+}
+
+async fn ws_dashboard_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| ws::handle_dashboard_socket(socket, state.dashboards))
 }
 
 // ── Zones ───────────────────────────────────────────────────────────────
@@ -709,9 +853,11 @@ async fn list_zones_handler(State(state): State<AppState>) -> impl IntoResponse 
 }
 
 async fn create_zone_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreateZone>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::create_zone(&state.db, &input).await {
         Ok(zone) => (StatusCode::CREATED, Json(zone)).into_response(),
         Err(e) => {
@@ -754,10 +900,12 @@ async fn get_zone_detail_handler(
 }
 
 async fn update_zone_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(input): Json<CreateZone>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::update_zone(&state.db, &id, &input).await {
         Ok(true) => {
             match db::get_zone(&state.db, &id).await {
@@ -774,9 +922,11 @@ async fn update_zone_handler(
 }
 
 async fn delete_zone_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::delete_zone(&state.db, &id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -808,9 +958,11 @@ async fn list_advertisers_handler(
 }
 
 async fn create_advertiser_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreateAdvertiser>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::create_advertiser(&state.db, &input).await {
         Ok(advertiser) => (StatusCode::CREATED, Json(advertiser)).into_response(),
         Err(e) => {
@@ -835,10 +987,12 @@ async fn get_advertiser_handler(
 }
 
 async fn update_advertiser_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(input): Json<CreateAdvertiser>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::update_advertiser(&state.db, &id, &input).await {
         Ok(true) => {
             match db::get_advertiser(&state.db, &id).await {
@@ -855,9 +1009,11 @@ async fn update_advertiser_handler(
 }
 
 async fn delete_advertiser_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::delete_advertiser(&state.db, &id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -889,9 +1045,11 @@ async fn list_campaigns_handler(
 }
 
 async fn create_campaign_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreateCampaign>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::create_campaign(&state.db, &input).await {
         Ok(campaign) => (StatusCode::CREATED, Json(campaign)).into_response(),
         Err(e) => {
@@ -916,10 +1074,12 @@ async fn get_campaign_handler(
 }
 
 async fn update_campaign_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(input): Json<CreateCampaign>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::update_campaign(&state.db, &id, &input).await {
         Ok(true) => {
             match db::get_campaign(&state.db, &id).await {
@@ -936,9 +1096,11 @@ async fn update_campaign_handler(
 }
 
 async fn delete_campaign_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::delete_campaign(&state.db, &id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -950,9 +1112,11 @@ async fn delete_campaign_handler(
 }
 
 async fn activate_campaign_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::activate_campaign(&state.db, &id).await {
         Ok(true) => {
             match db::get_campaign(&state.db, &id).await {
@@ -969,9 +1133,11 @@ async fn activate_campaign_handler(
 }
 
 async fn pause_campaign_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::pause_campaign(&state.db, &id).await {
         Ok(true) => {
             match db::get_campaign(&state.db, &id).await {
@@ -1003,10 +1169,12 @@ async fn list_creatives_handler(
 }
 
 async fn create_creative_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(campaign_id): Path<String>,
     Json(input): Json<CreateCreative>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::create_creative(&state.db, &campaign_id, &input).await {
         Ok(creative) => (StatusCode::CREATED, Json(creative)).into_response(),
         Err(e) => {
@@ -1016,10 +1184,53 @@ async fn create_creative_handler(
     }
 }
 
-async fn delete_creative_handler(
+async fn get_creative_handler(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    match db::get_creative(&state.db, &id).await {
+        Ok(Some(creative)) => Json(creative).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("get_creative: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn update_creative_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<UpdateCreative>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    let create_input = CreateCreative {
+        media_id: input.media_id,
+        name: input.name,
+        duration_secs: input.duration_secs,
+    };
+    match db::update_creative(&state.db, &id, &create_input, input.status.as_deref()).await {
+        Ok(true) => {
+            match db::get_creative(&state.db, &id).await {
+                Ok(Some(creative)) => Json(creative).into_response(),
+                _ => StatusCode::OK.into_response(),
+            }
+        }
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("update_creative: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_creative_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
     match db::delete_creative(&state.db, &id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
@@ -1051,11 +1262,36 @@ async fn list_bookings_handler(
 }
 
 async fn create_booking_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Json(input): Json<CreateBooking>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    // Check for overlapping exclusive bookings
+    if input.booking_type == "exclusive" {
+        match db::check_booking_conflict(
+            &state.db, &input.target_type, &input.target_id,
+            &input.start_date, &input.end_date, None,
+        ).await {
+            Ok(Some(conflict)) => {
+                return (StatusCode::CONFLICT, Json(serde_json::json!({
+                    "error": "Booking conflict",
+                    "conflicting_booking_id": conflict.id,
+                    "message": format!("Exclusive booking already exists for this target ({} - {})", conflict.start_date, conflict.end_date),
+                }))).into_response();
+            }
+            Err(e) => {
+                tracing::error!("check_booking_conflict: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+            Ok(None) => {} // no conflict
+        }
+    }
     match db::create_booking(&state.db, &input).await {
-        Ok(booking) => (StatusCode::CREATED, Json(booking)).into_response(),
+        Ok(booking) => {
+            push_schedule_for_booking(&state, &booking);
+            (StatusCode::CREATED, Json(booking)).into_response()
+        }
         Err(e) => {
             tracing::error!("create_booking: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
@@ -1078,14 +1314,39 @@ async fn get_booking_handler(
 }
 
 async fn update_booking_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(input): Json<CreateBooking>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    // Check for overlapping exclusive bookings (exclude self)
+    if input.booking_type == "exclusive" {
+        match db::check_booking_conflict(
+            &state.db, &input.target_type, &input.target_id,
+            &input.start_date, &input.end_date, Some(&id),
+        ).await {
+            Ok(Some(conflict)) => {
+                return (StatusCode::CONFLICT, Json(serde_json::json!({
+                    "error": "Booking conflict",
+                    "conflicting_booking_id": conflict.id,
+                    "message": format!("Exclusive booking already exists for this target ({} - {})", conflict.start_date, conflict.end_date),
+                }))).into_response();
+            }
+            Err(e) => {
+                tracing::error!("check_booking_conflict: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+            Ok(None) => {}
+        }
+    }
     match db::update_booking(&state.db, &id, &input).await {
         Ok(true) => {
             match db::get_booking(&state.db, &id).await {
-                Ok(Some(booking)) => Json(booking).into_response(),
+                Ok(Some(booking)) => {
+                    push_schedule_for_booking(&state, &booking);
+                    Json(booking).into_response()
+                }
                 _ => StatusCode::OK.into_response(),
             }
         }
@@ -1098,11 +1359,24 @@ async fn update_booking_handler(
 }
 
 async fn delete_booking_handler(
+    Extension(user): Extension<User>,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    // Resolve affected boards before deleting
+    let board_ids = match db::get_booking(&state.db, &id).await {
+        Ok(Some(booking)) => db::resolve_booking_board_ids(&state.db, &booking).await.unwrap_or_default(),
+        _ => vec![],
+    };
+
     match db::delete_booking(&state.db, &id).await {
-        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(true) => {
+            if !board_ids.is_empty() {
+                ws::push_schedule_to_boards(state.agents.clone(), state.db.clone(), board_ids);
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("delete_booking: {}", e);
@@ -1168,6 +1442,24 @@ async fn booking_play_logs_handler(
     }
 }
 
+// ── Schedule Push Helper ───────────────────────────────────────────────
+
+/// Resolve affected board IDs for a booking and push updated schedules.
+fn push_schedule_for_booking(state: &AppState, booking: &Booking) {
+    let db = state.db.clone();
+    let agents = state.agents.clone();
+    let booking = booking.clone();
+    tokio::spawn(async move {
+        match db::resolve_booking_board_ids(&db, &booking).await {
+            Ok(board_ids) if !board_ids.is_empty() => {
+                ws::push_schedule_to_boards(agents, db, board_ids);
+            }
+            Err(e) => tracing::error!("resolve_booking_board_ids: {e}"),
+            _ => {}
+        }
+    });
+}
+
 // ── Schedule Resolution ────────────────────────────────────────────────
 
 async fn get_resolved_schedule_handler(
@@ -1178,6 +1470,176 @@ async fn get_resolved_schedule_handler(
         Ok(resolved) => Json(resolved).into_response(),
         Err(e) => {
             tracing::error!("resolve_schedule: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+// ── Users (Admin) ─────────────────────────────────────────────────────
+
+async fn list_users_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+    match db::list_users(&state.db, params.page, params.per_page).await {
+        Ok((users, total)) => {
+            let data: Vec<UserResponse> = users.into_iter().map(UserResponse::from).collect();
+            Json(PaginatedResponse {
+                data,
+                total,
+                page: params.page,
+                per_page: params.per_page,
+            }).into_response()
+        }
+        Err(e) => {
+            tracing::error!("list_users: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn create_user_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Json(input): Json<CreateUser>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+
+    // Validate role
+    if !["admin", "operator", "viewer"].contains(&input.role.as_str()) {
+        return (StatusCode::BAD_REQUEST, "Invalid role. Must be admin, operator, or viewer").into_response();
+    }
+
+    // Check for duplicate username
+    match db::get_user_by_username(&state.db, &input.username).await {
+        Ok(Some(_)) => {
+            return (StatusCode::CONFLICT, "Username already exists").into_response();
+        }
+        Err(e) => {
+            tracing::error!("create_user check username: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        _ => {}
+    }
+
+    let password_hash = match auth::hash_password(&input.password) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("hash_password: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    let id = Uuid::new_v4().to_string();
+    match db::create_user(&state.db, &id, &input.username, &password_hash, &input.role).await {
+        Ok(()) => {
+            match db::get_user(&state.db, &id).await {
+                Ok(Some(u)) => (StatusCode::CREATED, Json(UserResponse::from(u))).into_response(),
+                _ => StatusCode::CREATED.into_response(),
+            }
+        }
+        Err(e) => {
+            tracing::error!("create_user: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn update_user_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<UpdateUser>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+
+    // Validate role if provided
+    if let Some(ref role) = input.role {
+        if !["admin", "operator", "viewer"].contains(&role.as_str()) {
+            return (StatusCode::BAD_REQUEST, "Invalid role. Must be admin, operator, or viewer").into_response();
+        }
+    }
+
+    // Check if username is being changed to one that already exists
+    if let Some(ref username) = input.username {
+        match db::get_user_by_username(&state.db, username).await {
+            Ok(Some(existing)) if existing.id != id => {
+                return (StatusCode::CONFLICT, "Username already exists").into_response();
+            }
+            Err(e) => {
+                tracing::error!("update_user check username: {}", e);
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+            _ => {}
+        }
+    }
+
+    // Update username/role if provided
+    if input.username.is_some() || input.role.is_some() {
+        match db::update_user(
+            &state.db,
+            &id,
+            input.username.as_deref(),
+            input.role.as_deref(),
+        ).await {
+            Ok(false) => return StatusCode::NOT_FOUND.into_response(),
+            Err(e) => {
+                tracing::error!("update_user: {}", e);
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+            _ => {}
+        }
+    }
+
+    // Update password if provided
+    if let Some(ref password) = input.password {
+        let password_hash = match auth::hash_password(password) {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::error!("hash_password: {}", e);
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
+        match db::update_user_password(&state.db, &id, &password_hash).await {
+            Ok(false) => return StatusCode::NOT_FOUND.into_response(),
+            Err(e) => {
+                tracing::error!("update_user_password: {}", e);
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+            _ => {}
+        }
+    }
+
+    // Return the updated user
+    match db::get_user(&state.db, &id).await {
+        Ok(Some(u)) => Json(UserResponse::from(u)).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("get_user: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_user_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+
+    // Prevent self-deletion
+    if user.id == id {
+        return (StatusCode::BAD_REQUEST, "Cannot delete your own account").into_response();
+    }
+
+    match db::delete_user(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_user: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
