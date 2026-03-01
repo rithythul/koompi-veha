@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ListVideo, Plus, Pencil, Trash2, ChevronUp, ChevronDown, X } from 'lucide-react'
-import { usePlaylists, useCreatePlaylist, useUpdatePlaylist, useDeletePlaylist } from '../api/playlists'
+import { usePlaylists, useCreatePlaylist, useDeletePlaylist } from '../api/playlists'
 import { useMedia, mediaDownloadUrl } from '../api/media'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
@@ -12,7 +12,7 @@ import { PageSpinner } from '../components/ui/Spinner'
 import { Pagination } from '../components/ui/Pagination'
 import { useToast } from '../components/ui/Toast'
 import { formatDate } from '../lib/utils'
-import type { PlaylistResponse, MediaItem, CreatePlaylist } from '../types/api'
+import type { MediaItem, CreatePlaylist } from '../types/api'
 
 export default function Playlists() {
   const navigate = useNavigate()
@@ -20,7 +20,6 @@ export default function Playlists() {
   const { data, isLoading } = usePlaylists({ page, per_page: 50 })
   const { data: mediaData } = useMedia({ per_page: 200 })
   const [showForm, setShowForm] = useState(false)
-  const [editItem, setEditItem] = useState<PlaylistResponse | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showMediaPicker, setShowMediaPicker] = useState(false)
 
@@ -29,7 +28,6 @@ export default function Playlists() {
   const [formItems, setFormItems] = useState<MediaItem[]>([])
 
   const createPlaylist = useCreatePlaylist()
-  const updatePlaylist = useUpdatePlaylist(editItem?.id ?? '')
   const deletePlaylist = useDeletePlaylist()
   const toast = useToast()
 
@@ -40,27 +38,17 @@ export default function Playlists() {
   const totalPages = Math.ceil((data?.total ?? 0) / (data?.per_page ?? 50))
 
   const openCreate = () => {
-    setEditItem(null)
     setFormName('')
     setFormLoop(false)
     setFormItems([])
     setShowForm(true)
   }
 
-  const openEdit = (pl: PlaylistResponse) => {
-    setEditItem(pl)
-    setFormName(pl.name)
-    setFormLoop(pl.loop_playlist)
-    setFormItems([...pl.items])
-    setShowForm(true)
-  }
-
   const handleSave = () => {
     const payload: CreatePlaylist = { name: formName, items: formItems, loop_playlist: formLoop }
-    const mutation = editItem ? updatePlaylist : createPlaylist
-    mutation.mutate(payload, {
+    createPlaylist.mutate(payload, {
       onSuccess: () => {
-        toast.success(editItem ? 'Playlist updated' : 'Playlist created')
+        toast.success('Playlist created')
         setShowForm(false)
       },
       onError: (err) => toast.error(err.message),
@@ -154,17 +142,17 @@ export default function Playlists() {
         </div>
       )}
 
-      {/* Playlist Editor Modal */}
+      {/* New Playlist Modal */}
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
-        title={editItem ? 'Edit Playlist' : 'New Playlist'}
+        title="New Playlist"
         size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
-            <Button onClick={handleSave} loading={createPlaylist.isPending || updatePlaylist.isPending} disabled={!formName.trim()}>
-              {editItem ? 'Save' : 'Create'}
+            <Button onClick={handleSave} loading={createPlaylist.isPending} disabled={!formName.trim()}>
+              Create
             </Button>
           </>
         }

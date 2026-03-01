@@ -1,10 +1,15 @@
-import { useReducer, useEffect } from 'react'
+import { useReducer, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Save, Film } from 'lucide-react'
 import { usePlaylist, useUpdatePlaylist } from '../api/playlists'
+import { useMedia, mediaDownloadUrl } from '../api/media'
 import { Button } from '../components/ui/Button'
+import { Modal } from '../components/ui/Modal'
 import { PageSpinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/Toast'
+import { PreviewPlayer } from '../components/playlist/PreviewPlayer'
+import type { PreviewPlayerHandle } from '../components/playlist/PreviewPlayer'
+import { Timeline } from '../components/playlist/Timeline'
 import type { MediaItem } from '../types/api'
 
 // ---------- State & Actions ----------
@@ -129,9 +134,13 @@ export default function PlaylistEditor() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const toast = useToast()
+  const playerRef = useRef<PreviewPlayerHandle>(null)
+  const [showMediaPicker, setShowMediaPicker] = useState(false)
 
   const { data: playlist, isLoading } = usePlaylist(id ?? '')
   const updatePlaylist = useUpdatePlaylist(id ?? '')
+  const { data: mediaData } = useMedia({ per_page: 200 })
+  const mediaList = mediaData?.data ?? []
 
   const [state, dispatch] = useReducer(editorReducer, initialState)
 
@@ -146,6 +155,43 @@ export default function PlaylistEditor() {
       })
     }
   }, [playlist])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      if (e.key === ' ') {
+        e.preventDefault()
+        playerRef.current?.togglePlay()
+      } else if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedIndex !== null) {
+        dispatch({ type: 'REMOVE_ITEM', index: state.selectedIndex })
+      } else if (e.key === 'd' && state.selectedIndex !== null) {
+        dispatch({ type: 'DUPLICATE', index: state.selectedIndex })
+      } else if (e.key === 'ArrowLeft' && state.selectedIndex !== null && state.selectedIndex > 0) {
+        dispatch({ type: 'SELECT', index: state.selectedIndex - 1 })
+      } else if (e.key === 'ArrowRight' && state.selectedIndex !== null && state.selectedIndex < state.items.length - 1) {
+        dispatch({ type: 'SELECT', index: state.selectedIndex + 1 })
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [state.selectedIndex, state.items.length])
+
+  // Unsaved changes warning
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (state.dirty) e.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [state.dirty])
+
+  const handleBack = () => {
+    if (state.dirty && !window.confirm('You have unsaved changes. Discard?')) return
+    navigate('/playlists')
+  }
 
   const handleSave = () => {
     updatePlaylist.mutate(
@@ -169,6 +215,20 @@ export default function PlaylistEditor() {
     )
   }
 
+  const addMediaItem = (mediaId: string) => {
+    const media = mediaList.find((m) => m.id === mediaId)
+    if (!media) return
+    dispatch({
+      type: 'ADD_ITEM',
+      item: {
+        source: mediaDownloadUrl(mediaId),
+        name: media.name,
+        duration: { secs: 10, nanos: 0 },
+      },
+    })
+    setShowMediaPicker(false)
+  }
+
   if (isLoading) return <PageSpinner />
 
   if (!playlist) {
@@ -187,7 +247,7 @@ export default function PlaylistEditor() {
       {/* Toolbar */}
       <div className="flex items-center gap-4 mb-4 flex-shrink-0">
         <button
-          onClick={() => navigate('/playlists')}
+          onClick={handleBack}
           className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" /> Back
@@ -225,16 +285,59 @@ export default function PlaylistEditor() {
 
       {/* Main content area */}
       <div className="flex flex-col flex-1 gap-4 min-h-0">
-        {/* Preview Player placeholder */}
-        <div className="bg-bg-surface border border-border-default rounded-lg flex items-center justify-center h-48 flex-shrink-0">
-          <p className="text-sm text-text-muted">Preview Player</p>
-        </div>
+        {/* Preview Player */}
+        <PreviewPlayer
+          ref={playerRef}
+          items={state.items}
+          selectedIndex={state.selectedIndex}
+          onIndexChange={(i) => dispatch({ type: 'SELECT', index: i })}
+        />
 
-        {/* Timeline placeholder */}
-        <div className="bg-bg-surface border border-border-default rounded-lg flex items-center justify-center flex-1 min-h-[120px]">
-          <p className="text-sm text-text-muted">Timeline</p>
+        {/* Timeline */}
+        <div className="flex-1 min-h-[120px]">
+          <Timeline
+            items={state.items}
+            selectedIndex={state.selectedIndex}
+            onSelect={(i) => dispatch({ type: 'SELECT', index: i })}
+            onReorder={(from, to) => dispatch({ type: 'REORDER', fromIndex: from, toIndex: to })}
+            onDurationChange={(i, secs) => dispatch({ type: 'SET_DURATION', index: i, secs })}
+            onRemove={(i) => dispatch({ type: 'REMOVE_ITEM', index: i })}
+            onDuplicate={(i) => dispatch({ type: 'DUPLICATE', index: i })}
+            onAddMedia={() => setShowMediaPicker(true)}
+          />
         </div>
       </div>
+
+      {/* Media Picker Modal */}
+      <Modal open={showMediaPicker} onClose={() => setShowMediaPicker(false)} title="Add Media">
+        {mediaList.length === 0 ? (
+          <p className="text-sm text-text-muted text-center py-8">No media uploaded yet.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto">
+            {mediaList.map((media) => (
+              <button
+                key={media.id}
+                onClick={() => addMediaItem(media.id)}
+                className="rounded-lg border border-border-default hover:border-accent overflow-hidden transition-colors cursor-pointer"
+              >
+                {media.mime_type.startsWith('image/') ? (
+                  <img
+                    src={mediaDownloadUrl(media.id)}
+                    alt={media.name}
+                    className="aspect-video object-cover w-full"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="aspect-video bg-bg-elevated flex items-center justify-center">
+                    <Film className="w-6 h-6 text-text-muted" />
+                  </div>
+                )}
+                <p className="text-[10px] text-text-primary truncate px-2 py-1">{media.name}</p>
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }
