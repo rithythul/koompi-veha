@@ -1,0 +1,136 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: var(--theme-bg-primary);
+  --color-bg-surface: var(--theme-bg-surface);
+  --color-bg-elevated: var(--theme-bg-elevated);
+  --color-bg-sidebar: var(--theme-bg-sidebar);
+
+  --color-border-default: var(--theme-border-default);
+  --color-border-hover: var(--theme-border-hover);
+
+  --color-text-primary: var(--theme-text-primary);
+  --color-text-secondary: var(--theme-text-secondary);
+  --color-text-muted: var(--theme-text-muted);
+
+  --color-accent: var(--theme-accent);
+  --color-accent-hover: var(--theme-accent-hover);
+
+  --color-status-online: #34d399;
+  --color-status-warning: #fbbf24;
+  --color-status-error: #fb7185;
+  --color-status-info: #38bdf8;
+  --color-status-neutral: #94a3b8;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* Dark theme (default) */
+:root {
+  --theme-bg-primary: #09090f;
+  --theme-bg-surface: #13131d;
+  --theme-bg-elevated: #1d1d2b;
+  --theme-bg-sidebar: #07070c;
+  --theme-border-default: #2b2b40;
+  --theme-border-hover: #3d3d5c;
+  --theme-text-primary: #ffffff;
+  --theme-text-secondary: #c0c4d8;
+  --theme-text-muted: #8e93b0;
+  --theme-accent: #8b7cf8;
+  --theme-accent-hover: #ab9eff;
+  --theme-chart-tick: #c0c4d8;
+  --theme-chart-tooltip-bg: #1d1d2b;
+  --theme-chart-tooltip-border: #2b2b40;
+  --theme-chart-tooltip-color: #ffffff;
+  --theme-scrollbar-thumb: #2b2b40;
+  --theme-scrollbar-hover: #3d3d5c;
+}
+
+/* Light theme */
+[data-theme="light"] {
+  --theme-bg-primary: #f5f5f7;
+  --theme-bg-surface: #ffffff;
+  --theme-bg-elevated: #f0f0f4;
+  --theme-bg-sidebar: #fafafe;
+  --theme-border-default: #e0e0ea;
+  --theme-border-hover: #c8c8d6;
+  --theme-text-primary: #111118;
+  --theme-text-secondary: #555568;
+  --theme-text-muted: #888898;
+  --theme-accent: #7c6cf0;
+  --theme-accent-hover: #6858e0;
+  --theme-chart-tick: #555568;
+  --theme-chart-tooltip-bg: #ffffff;
+  --theme-chart-tooltip-border: #e0e0ea;
+  --theme-chart-tooltip-color: #111118;
+  --theme-scrollbar-thumb: #d0d0dc;
+  --theme-scrollbar-hover: #b8b8c8;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--theme-scrollbar-thumb);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--theme-scrollbar-hover);
+}
+
+/* Leaflet overrides */
+.leaflet-container {
+  background: var(--theme-bg-primary);
+}
+.leaflet-control-zoom a {
+  background: var(--theme-bg-surface) !important;
+  color: var(--theme-text-primary) !important;
+  border-color: var(--theme-border-default) !important;
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: var(--theme-bg-elevated);
+  color: var(--theme-text-primary);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+.leaflet-popup-close-button {
+  color: var(--theme-text-secondary) !important;
+}
+
+/* Light mode: Leaflet tile filter */
+[data-theme="light"] .leaflet-tile-pane {
+  filter: none;
+}
+
+/* Animations */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-slide-in-right { animation: slide-in-right 0.3s ease-out; }
+.animate-slide-in-up { animation: slide-in-up 0.2s ease-out; }
+.animate-scale-in { animation: scale-in 0.2s ease-out; }
+.animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }

@@ -1,0 +1,242 @@
+import { useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { ArrowLeft, Megaphone, Plus, Trash2, Play, Pause } from 'lucide-react'
+import {
+  useCampaign, useActivateCampaign, usePauseCampaign,
+  useCreatives, useCreateCreative, useDeleteCreative,
+} from '../api/campaigns'
+import { useAdvertiser } from '../api/advertisers'
+import { useMedia } from '../api/media'
+import { useBookings } from '../api/bookings'
+import { Button } from '../components/ui/Button'
+import { Badge } from '../components/ui/Badge'
+import { Card } from '../components/ui/Card'
+import { Modal } from '../components/ui/Modal'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { PageSpinner } from '../components/ui/Spinner'
+import { useToast } from '../components/ui/Toast'
+import { formatDate, getDaysOfWeekLabels } from '../lib/utils'
+
+const statusVariant: Record<string, 'info' | 'online' | 'warning' | 'default'> = {
+  draft: 'info',
+  active: 'online',
+  paused: 'warning',
+}
+
+export default function CampaignDetail() {
+  const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
+  const { data: campaign, isLoading } = useCampaign(id ?? '')
+  const { data: advertiser } = useAdvertiser(campaign?.advertiser_id ?? '')
+  const { data: creatives } = useCreatives(id ?? '')
+  const { data: mediaData } = useMedia({ per_page: 200 })
+  const { data: bookingsData } = useBookings({ campaign_id: id, per_page: 50 })
+
+  const activate = useActivateCampaign(id ?? '')
+  const pause = usePauseCampaign(id ?? '')
+  const createCreative = useCreateCreative(id ?? '')
+  const deleteCreative = useDeleteCreative()
+  const toast = useToast()
+
+  const [showMediaPicker, setShowMediaPicker] = useState(false)
+  const [deleteCreativeId, setDeleteCreativeId] = useState<string | null>(null)
+
+  if (isLoading || !campaign) return <PageSpinner />
+
+  const mediaList = mediaData?.data ?? []
+  const creativesList = creatives ?? []
+  const bookings = bookingsData?.data ?? []
+
+  const handleActivate = () => {
+    activate.mutate(undefined, {
+      onSuccess: () => toast.success('Campaign activated'),
+      onError: (err) => toast.error(err.message),
+    })
+  }
+
+  const handlePause = () => {
+    pause.mutate(undefined, {
+      onSuccess: () => toast.success('Campaign paused'),
+      onError: (err) => toast.error(err.message),
+    })
+  }
+
+  const handleAddCreative = (mediaId: string) => {
+    const media = mediaList.find((m) => m.id === mediaId)
+    createCreative.mutate(
+      { media_id: mediaId, name: media?.name },
+      {
+        onSuccess: () => {
+          toast.success('Creative added')
+          setShowMediaPicker(false)
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    )
+  }
+
+  const handleDeleteCreative = () => {
+    if (!deleteCreativeId) return
+    deleteCreative.mutate(deleteCreativeId, {
+      onSuccess: () => {
+        toast.success('Creative removed')
+        setDeleteCreativeId(null)
+      },
+      onError: (err) => toast.error(err.message),
+    })
+  }
+
+  return (
+    <div className="animate-fade-in">
+      <button
+        onClick={() => navigate('/campaigns')}
+        className="flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary mb-4 transition-colors cursor-pointer"
+      >
+        <ArrowLeft className="w-4 h-4" /> Back to Campaigns
+      </button>
+
+      <div className="flex items-center gap-3 mb-6">
+        <div className="w-10 h-10 bg-accent/15 rounded-lg flex items-center justify-center">
+          <Megaphone className="w-5 h-5 text-accent" />
+        </div>
+        <div>
+          <h1 className="text-xl font-semibold text-text-primary">{campaign.name}</h1>
+          <p className="text-xs text-text-secondary">{advertiser?.name ?? campaign.advertiser_id}</p>
+        </div>
+        <Badge variant={statusVariant[campaign.status] ?? 'default'} className="ml-2">
+          {campaign.status}
+        </Badge>
+        <div className="ml-auto flex gap-2">
+          {(campaign.status === 'draft' || campaign.status === 'paused') && (
+            <Button size="sm" onClick={handleActivate} loading={activate.isPending}>
+              <Play className="w-3.5 h-3.5" /> Activate
+            </Button>
+          )}
+          {campaign.status === 'active' && (
+            <Button variant="secondary" size="sm" onClick={handlePause} loading={pause.isPending}>
+              <Pause className="w-3.5 h-3.5" /> Pause
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="lg:col-span-2 space-y-4">
+          {/* Campaign Info */}
+          <Card title="Campaign Info">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-text-muted text-xs mb-1">Advertiser</p>
+                <p className="text-text-primary">{advertiser?.name ?? '--'}</p>
+              </div>
+              <div>
+                <p className="text-text-muted text-xs mb-1">Start Date</p>
+                <p className="text-text-primary">{formatDate(campaign.start_date)}</p>
+              </div>
+              <div>
+                <p className="text-text-muted text-xs mb-1">End Date</p>
+                <p className="text-text-primary">{formatDate(campaign.end_date)}</p>
+              </div>
+              {campaign.notes && (
+                <div className="col-span-full">
+                  <p className="text-text-muted text-xs mb-1">Notes</p>
+                  <p className="text-text-secondary">{campaign.notes}</p>
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Creatives */}
+          <Card
+            title={`Creatives (${creativesList.length})`}
+            action={
+              <Button variant="secondary" size="sm" onClick={() => setShowMediaPicker(true)}>
+                <Plus className="w-3.5 h-3.5" /> Add
+              </Button>
+            }
+          >
+            {creativesList.length === 0 ? (
+              <p className="text-sm text-text-muted">No creatives. Add media from the library.</p>
+            ) : (
+              <div className="space-y-2">
+                {creativesList.map((cr) => (
+                  <div
+                    key={cr.id}
+                    className="flex items-center justify-between px-3 py-2 bg-bg-primary rounded-md"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-text-primary">{cr.name ?? 'Untitled'}</span>
+                      {cr.duration_secs && (
+                        <span className="text-xs text-text-muted">{cr.duration_secs}s</span>
+                      )}
+                      <Badge variant="online" className="text-[10px]">{cr.status}</Badge>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => setDeleteCreativeId(cr.id)}>
+                      <Trash2 className="w-3.5 h-3.5 text-status-error" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Bookings */}
+        <div>
+          <Card title={`Bookings (${bookings.length})`}>
+            {bookings.length === 0 ? (
+              <p className="text-sm text-text-muted">No bookings for this campaign.</p>
+            ) : (
+              <div className="space-y-2">
+                {bookings.map((b) => (
+                  <div key={b.id} className="px-3 py-2 bg-bg-primary rounded-md text-sm">
+                    <div className="flex items-center justify-between">
+                      <Badge variant={b.booking_type === 'exclusive' ? 'warning' : 'accent'} className="text-[10px]">
+                        {b.booking_type}
+                      </Badge>
+                      <Badge variant="default" className="text-[10px]">
+                        {b.target_type}
+                      </Badge>
+                    </div>
+                    <p className="text-text-muted text-xs mt-1">
+                      {formatDate(b.start_date)} - {formatDate(b.end_date)}
+                    </p>
+                    <p className="text-text-muted text-xs">
+                      {getDaysOfWeekLabels(b.days_of_week)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {/* Media Picker */}
+      <Modal open={showMediaPicker} onClose={() => setShowMediaPicker(false)} title="Select Media">
+        <div className="space-y-1 max-h-80 overflow-y-auto">
+          {mediaList.map((media) => (
+            <button
+              key={media.id}
+              onClick={() => handleAddCreative(media.id)}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-bg-elevated transition-colors text-left cursor-pointer"
+            >
+              <span className="text-sm text-text-primary">{media.name}</span>
+              <span className="text-xs text-text-muted ml-auto">{media.mime_type.split('/')[1]}</span>
+            </button>
+          ))}
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={!!deleteCreativeId}
+        onClose={() => setDeleteCreativeId(null)}
+        onConfirm={handleDeleteCreative}
+        title="Remove Creative"
+        message="Remove this creative from the campaign?"
+        confirmLabel="Remove"
+        loading={deleteCreative.isPending}
+      />
+    </div>
+  )
+}

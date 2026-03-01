@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from './components/ui/Toast'
 import { FullScreenSpinner } from './components/ui/Spinner'
 import { useAuthStore } from './stores/auth'
+import { useThemeStore } from './stores/theme'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 const AppLayout = lazy(() => import('./components/layout/AppLayout'))
@@ -36,6 +37,11 @@ const queryClient = new QueryClient({
 
 export default function App() {
   const logout = useAuthStore((s) => s.logout)
+  const theme = useThemeStore((s) => s.theme)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
 
   useEffect(() => {
     const handler = () => {
