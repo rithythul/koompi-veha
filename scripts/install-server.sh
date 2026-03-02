@@ -55,14 +55,14 @@ install_deps() {
         info "Installing dependencies (apt)..."
         apt-get update -qq
         apt-get install -y -qq curl git build-essential pkg-config \
-            libssl-dev libsqlite3-dev \
+            libssl-dev libsqlite3-dev clang libclang-dev \
             libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
     elif command -v pacman &>/dev/null; then
         info "Installing dependencies (pacman)..."
-        pacman -Sy --noconfirm --needed curl git base-devel openssl sqlite ffmpeg
+        pacman -Sy --noconfirm --needed curl git base-devel openssl sqlite ffmpeg clang
     elif command -v dnf &>/dev/null; then
         info "Installing dependencies (dnf)..."
-        dnf install -y curl git gcc make openssl-devel sqlite-devel \
+        dnf install -y curl git gcc make openssl-devel sqlite-devel clang clang-devel \
             ffmpeg-devel libavcodec-free-devel
     else
         warn "Unknown package manager. Please install: curl, git, build tools, FFmpeg dev libs, SQLite dev"

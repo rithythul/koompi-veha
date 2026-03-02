@@ -156,15 +156,15 @@ install_deps() {
         info "Installing dependencies (apt)..."
         apt-get update -qq
         apt-get install -y -qq curl git build-essential pkg-config \
-            libssl-dev \
+            libssl-dev clang libclang-dev \
             ffmpeg libavcodec-dev libavformat-dev libavutil-dev \
             libswscale-dev libswresample-dev
     elif command -v pacman &>/dev/null; then
         info "Installing dependencies (pacman)..."
-        pacman -Sy --noconfirm --needed curl git base-devel openssl ffmpeg
+        pacman -Sy --noconfirm --needed curl git base-devel openssl ffmpeg clang
     elif command -v dnf &>/dev/null; then
         info "Installing dependencies (dnf)..."
-        dnf install -y curl git gcc make openssl-devel \
+        dnf install -y curl git gcc make openssl-devel clang clang-devel \
             ffmpeg ffmpeg-devel
     else
         warn "Unknown package manager — please install: curl, git, build tools, FFmpeg 8+ dev libs"
