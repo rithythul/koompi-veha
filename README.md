@@ -47,7 +47,7 @@ The system is a Cargo workspace with 7 crates:
 ### Central Server (one-liner)
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/koompi/koompi-veha/main/scripts/install-server.sh | sudo bash
+curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/install-server.sh | sudo bash
 ```
 
 Installs the API server + dashboard to `/opt/veha`, creates a systemd service, and prints the admin credentials.
@@ -55,7 +55,7 @@ Installs the API server + dashboard to `/opt/veha`, creates a systemd service, a
 ### Billboard Edge Device (one-liner)
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/koompi/koompi-veha/main/scripts/install-edge.sh | sudo bash
+curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/install-edge.sh | sudo bash
 ```
 
 Installs the agent + player on billboard hardware. Prompts for server URL, board ID, display resolution, and output backend. Sets up systemd services that auto-start on boot.

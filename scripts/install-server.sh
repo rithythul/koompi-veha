@@ -3,7 +3,7 @@
 # Veha Server Installer
 #
 # One-liner:
-#   curl -sSfL https://raw.githubusercontent.com/koompi/koompi-veha/main/scripts/install-server.sh | sudo bash
+#   curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/install-server.sh | sudo bash
 #
 # Installs:  veha-api binary + React dashboard
 # Creates:   /opt/veha/ (binary, database, media, static files)
@@ -11,7 +11,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="koompi/koompi-veha"
+REPO="rithythul/koompi-veha"
 INSTALL_DIR="/opt/veha"
 SERVICE_NAME="veha-server"
 

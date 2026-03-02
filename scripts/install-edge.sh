@@ -3,7 +3,7 @@
 # Veha Edge Device Installer (Billboard)
 #
 # One-liner:
-#   curl -sSfL https://raw.githubusercontent.com/koompi/koompi-veha/main/scripts/install-edge.sh | sudo bash
+#   curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/install-edge.sh | sudo bash
 #
 # Installs:  veha-agent + veha-player (with framebuffer support)
 # Creates:   /opt/veha/ (binaries, TOML configs)
@@ -11,7 +11,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-REPO="koompi/koompi-veha"
+REPO="rithythul/koompi-veha"
 INSTALL_DIR="/opt/veha"
 
 # ── Colors ──────────────────────────────────────────────────────────────────
