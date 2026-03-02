@@ -2,12 +2,24 @@
 # ──────────────────────────────────────────────────────────────────────────────
 # Veha Edge Device Installer (Billboard)
 #
-# One-liner:
+# Interactive:
 #   curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/install-edge.sh | sudo bash
+#
+# Non-interactive (e.g. via SSH):
+#   curl -sSfL ... | sudo SERVER_URL=http://192.168.1.100:3000 BOARD_ID=board-001 bash
 #
 # Options:
 #   --uninstall           Remove veha edge device completely
 #   VEHA_VERSION=v1.0.0   Pin to a specific git tag/branch
+#
+# Environment variables (skip prompts when set):
+#   SERVER_URL    API server URL (required)
+#   BOARD_ID      Unique board identifier (required)
+#   BOARD_NAME    Display name (default: BOARD_ID)
+#   WIDTH         Display width (default: 1920)
+#   HEIGHT        Display height (default: 1080)
+#   OUTPUT_BACKEND  framebuffer|window|null (default: auto-detect)
+#   API_KEY       API key for agent auth (default: none)
 #
 # Installs:  veha-agent + veha-player (with framebuffer support)
 # Creates:   /opt/veha/ (binaries, TOML configs)
@@ -31,10 +43,19 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
-# prompt "message" VARNAME — reads from /dev/tty so curl|bash works
+# Detect interactive mode (has /dev/tty)
+INTERACTIVE=false
+if [ -c /dev/tty ] 2>/dev/null; then
+    INTERACTIVE=true
+fi
+
+# prompt "message" VARNAME — reads from /dev/tty in interactive mode, fails in non-interactive
 prompt() {
     local msg="$1" var="$2"
-    read -rp "$msg" "$var" </dev/tty
+    if [ "$INTERACTIVE" = "true" ]; then
+        read -rp "$msg" "$var" </dev/tty
+    fi
+    # In non-interactive mode, the variable keeps its current (env) value
 }
 
 # ── Uninstall ────────────────────────────────────────────────────────────────
@@ -157,95 +178,119 @@ fi
 
 # ── Collect configuration ──────────────────────────────────────────────────
 
-echo -e "${BOLD}Billboard Configuration${NC}"
-echo ""
+# Pre-set from env vars (allows non-interactive use)
+SERVER_URL="${SERVER_URL:-}"
+BOARD_ID="${BOARD_ID:-}"
+BOARD_NAME="${BOARD_NAME:-}"
+WIDTH="${WIDTH:-}"
+HEIGHT="${HEIGHT:-}"
+OUTPUT_BACKEND="${OUTPUT_BACKEND:-}"
+API_KEY="${API_KEY:-}"
 
-# Server URL (required)
-while true; do
-    prompt "API server URL (e.g. http://192.168.1.100:3000): " SERVER_URL
-    SERVER_URL=${SERVER_URL%/}  # strip trailing slash
-    if [ -n "$SERVER_URL" ]; then
-        break
+if [ "$INTERACTIVE" = "true" ]; then
+    echo -e "${BOLD}Billboard Configuration${NC}"
+    echo ""
+
+    # Server URL (required)
+    while [ -z "$SERVER_URL" ]; do
+        prompt "API server URL (e.g. http://192.168.1.100:3000): " SERVER_URL
+        SERVER_URL=${SERVER_URL%/}
+        [ -n "$SERVER_URL" ] || echo -e "${RED}  Server URL is required${NC}"
+    done
+
+    # Board ID (required)
+    while [ -z "$BOARD_ID" ]; do
+        prompt "Board ID (unique, e.g. board-pp-riverside-001): " BOARD_ID
+        [ -n "$BOARD_ID" ] || echo -e "${RED}  Board ID is required${NC}"
+    done
+
+    # Board name
+    prompt "Board name [${BOARD_ID}]: " BOARD_NAME
+    BOARD_NAME=${BOARD_NAME:-$BOARD_ID}
+
+    # Resolution (only prompt if WIDTH/HEIGHT not already set via env)
+    if [ -z "$WIDTH" ] || [ -z "$HEIGHT" ]; then
+        echo ""
+        echo "  Common resolutions:"
+        echo "    1) 1920x1080 (Full HD landscape)"
+        echo "    2) 1080x1920 (Full HD portrait)"
+        echo "    3) 3840x2160 (4K UHD)"
+        echo "    4) Custom"
+        echo ""
+        prompt "Select resolution [1]: " RES_CHOICE
+        RES_CHOICE=${RES_CHOICE:-1}
+
+        case "$RES_CHOICE" in
+            1) WIDTH=1920; HEIGHT=1080 ;;
+            2) WIDTH=1080; HEIGHT=1920 ;;
+            3) WIDTH=3840; HEIGHT=2160 ;;
+            4)
+                prompt "  Width: " WIDTH
+                prompt "  Height: " HEIGHT
+                [[ "$WIDTH" =~ ^[0-9]+$ ]] || fail "Width must be a positive number"
+                [[ "$HEIGHT" =~ ^[0-9]+$ ]] || fail "Height must be a positive number"
+                [ "$WIDTH" -gt 0 ] || fail "Width must be greater than 0"
+                [ "$HEIGHT" -gt 0 ] || fail "Height must be greater than 0"
+                ;;
+            *) WIDTH=1920; HEIGHT=1080 ;;
+        esac
     fi
-    echo -e "${RED}  Server URL is required${NC}"
-done
 
-# Warn about non-TLS URLs
-case "$SERVER_URL" in
-    http://*) warn "Using unencrypted HTTP. Consider HTTPS for production." ;;
-esac
+    # Output backend (only prompt if not set via env)
+    if [ -z "$OUTPUT_BACKEND" ]; then
+        if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${XDG_CURRENT_DESKTOP:-}" ]; then
+            DEFAULT_BACKEND=2
+            DETECT_MSG=" (desktop detected)"
+        else
+            DEFAULT_BACKEND=1
+            DETECT_MSG=" (no desktop detected)"
+        fi
+
+        echo ""
+        echo "  Output backend${DETECT_MSG}:"
+        echo "    1) framebuffer (headless — direct HDMI, no desktop needed)"
+        echo "    2) window (desktop — X11/Wayland, can run fullscreen)"
+        echo "    3) null (testing only, no display output)"
+        echo ""
+        prompt "Select output [${DEFAULT_BACKEND}]: " BACKEND_CHOICE
+        BACKEND_CHOICE=${BACKEND_CHOICE:-$DEFAULT_BACKEND}
+
+        case "$BACKEND_CHOICE" in
+            1) OUTPUT_BACKEND="framebuffer" ;;
+            2) OUTPUT_BACKEND="window" ;;
+            3) OUTPUT_BACKEND="null" ;;
+            *) OUTPUT_BACKEND="window" ;;
+        esac
+    fi
+
+    # API key (optional, only prompt if not set via env)
+    if [ -z "$API_KEY" ]; then
+        prompt "API key (blank if none): " API_KEY
+        API_KEY=${API_KEY:-}
+    fi
+else
+    # Non-interactive — validate required vars
+    [ -n "$SERVER_URL" ] || fail "SERVER_URL is required (set via environment variable)"
+    [ -n "$BOARD_ID" ] || fail "BOARD_ID is required (set via environment variable)"
+    info "Non-interactive mode — using environment variables"
+fi
+
+# Apply defaults for anything still unset
+SERVER_URL=${SERVER_URL%/}
+BOARD_NAME=${BOARD_NAME:-$BOARD_ID}
+WIDTH=${WIDTH:-1920}
+HEIGHT=${HEIGHT:-1080}
+OUTPUT_BACKEND=${OUTPUT_BACKEND:-window}
+API_KEY=${API_KEY:-}
 
 # Derive WebSocket URL from HTTP URL
 WS_URL=$(echo "$SERVER_URL" | sed 's|^http://|ws://|; s|^https://|wss://|')
 WS_URL="${WS_URL}/ws/agent"
 
-# Board ID (required)
-while true; do
-    prompt "Board ID (unique, e.g. board-pp-riverside-001): " BOARD_ID
-    if [ -n "$BOARD_ID" ]; then
-        break
-    fi
-    echo -e "${RED}  Board ID is required${NC}"
-done
-
-# Board name
-prompt "Board name [${BOARD_ID}]: " BOARD_NAME
-BOARD_NAME=${BOARD_NAME:-$BOARD_ID}
-
-# Resolution
-echo ""
-echo "  Common resolutions:"
-echo "    1) 1920x1080 (Full HD landscape)"
-echo "    2) 1080x1920 (Full HD portrait)"
-echo "    3) 3840x2160 (4K UHD)"
-echo "    4) Custom"
-echo ""
-prompt "Select resolution [1]: " RES_CHOICE
-RES_CHOICE=${RES_CHOICE:-1}
-
-case "$RES_CHOICE" in
-    1) WIDTH=1920; HEIGHT=1080 ;;
-    2) WIDTH=1080; HEIGHT=1920 ;;
-    3) WIDTH=3840; HEIGHT=2160 ;;
-    4)
-        prompt "  Width: " WIDTH
-        prompt "  Height: " HEIGHT
-        [[ "$WIDTH" =~ ^[0-9]+$ ]] || fail "Width must be a positive number"
-        [[ "$HEIGHT" =~ ^[0-9]+$ ]] || fail "Height must be a positive number"
-        [ "$WIDTH" -gt 0 ] || fail "Width must be greater than 0"
-        [ "$HEIGHT" -gt 0 ] || fail "Height must be greater than 0"
-        ;;
-    *) WIDTH=1920; HEIGHT=1080 ;;
+# Warn about non-TLS URLs
+case "$SERVER_URL" in
+    http://*) warn "Using unencrypted HTTP. Consider HTTPS for production." ;;
 esac
-
-# Output backend — auto-detect desktop environment
-if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${XDG_CURRENT_DESKTOP:-}" ]; then
-    DEFAULT_BACKEND=2
-    DETECT_MSG=" (desktop detected)"
-else
-    DEFAULT_BACKEND=1
-    DETECT_MSG=" (no desktop detected)"
-fi
-
-echo ""
-echo "  Output backend${DETECT_MSG}:"
-echo "    1) framebuffer (headless — direct HDMI, no desktop needed)"
-echo "    2) window (desktop — X11/Wayland, can run fullscreen)"
-echo "    3) null (testing only, no display output)"
-echo ""
-prompt "Select output [${DEFAULT_BACKEND}]: " BACKEND_CHOICE
-BACKEND_CHOICE=${BACKEND_CHOICE:-$DEFAULT_BACKEND}
-
-case "$BACKEND_CHOICE" in
-    1) OUTPUT_BACKEND="framebuffer" ;;
-    2) OUTPUT_BACKEND="window" ;;
-    3) OUTPUT_BACKEND="null" ;;
-    *) OUTPUT_BACKEND="window" ;;
-esac
-
-# API key (optional)
-prompt "API key (blank if none): " API_KEY
-API_KEY=${API_KEY:-}
 
 # Detect desktop user + display vars when window backend is selected
 DESKTOP_USER="root"
@@ -308,12 +353,14 @@ if [ "$OUTPUT_BACKEND" = "window" ]; then
     echo "  Run as:   $DESKTOP_USER (desktop session)"
 fi
 echo ""
-prompt "Continue? [Y/n]: " CONFIRM
-CONFIRM=${CONFIRM:-Y}
-case "$CONFIRM" in
-    [Yy]*) ;;
-    *) echo "Aborted."; exit 0 ;;
-esac
+if [ "$INTERACTIVE" = "true" ]; then
+    prompt "Continue? [Y/n]: " CONFIRM
+    CONFIRM=${CONFIRM:-Y}
+    case "$CONFIRM" in
+        [Yy]*) ;;
+        *) echo "Aborted."; exit 0 ;;
+    esac
+fi
 
 # ── Install dependencies ───────────────────────────────────────────────────
 
@@ -564,8 +611,10 @@ echo ""
 
 # Offer to clean up Rust toolchain if we installed it
 if [ "$RUST_PREEXISTING" = "false" ]; then
-    echo -e "${YELLOW}The Rust toolchain (~500MB) was installed for the build.${NC}"
-    prompt "Remove Rust toolchain? (not needed at runtime) [Y/n]: " CLEANUP_RUST
+    if [ "$INTERACTIVE" = "true" ]; then
+        echo -e "${YELLOW}The Rust toolchain (~500MB) was installed for the build.${NC}"
+        prompt "Remove Rust toolchain? (not needed at runtime) [Y/n]: " CLEANUP_RUST
+    fi
     CLEANUP_RUST=${CLEANUP_RUST:-Y}
     case "$CLEANUP_RUST" in
         [Yy]*)
