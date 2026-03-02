@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react'
 import { Image, Trash2, Download, Eye, Film, Upload, LayoutGrid, List, Pencil } from 'lucide-react'
-import { useMedia, useDeleteMedia, useRenameMedia, mediaDownloadUrl, uploadMediaWithProgress } from '../api/media'
+import { useMedia, useDeleteMedia, useRenameMedia, mediaDownloadUrl, mediaThumbnailUrl, uploadMediaWithProgress } from '../api/media'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -192,6 +192,11 @@ export default function MediaLibrary() {
                     <div className="w-16 h-10 rounded bg-bg-primary flex items-center justify-center overflow-hidden">
                       {isImage(media.mime_type) ? (
                         <img src={mediaDownloadUrl(media.id)} alt="" className="w-full h-full object-cover" loading="lazy" />
+                      ) : isVideo(media.mime_type) ? (
+                        <div className="relative w-full h-full">
+                          <img src={mediaThumbnailUrl(media.id)} alt="" className="w-full h-full object-cover" loading="lazy" />
+                          <Film className="absolute bottom-0.5 right-0.5 w-3 h-3 text-white drop-shadow" />
+                        </div>
                       ) : (
                         <Film className="w-5 h-5 text-text-muted" />
                       )}
@@ -242,6 +247,19 @@ export default function MediaLibrary() {
                     className="w-full h-full object-cover"
                     loading="lazy"
                   />
+                ) : isVideo(media.mime_type) ? (
+                  <>
+                    <img
+                      src={mediaThumbnailUrl(media.id)}
+                      alt={media.name}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                    <div className="absolute bottom-1.5 left-1.5 bg-black/70 rounded px-1 py-0.5 flex items-center gap-1">
+                      <Film className="w-3 h-3 text-white" />
+                      <span className="text-[10px] text-white font-medium">VIDEO</span>
+                    </div>
+                  </>
                 ) : (
                   <Film className="w-10 h-10 text-text-muted" />
                 )}

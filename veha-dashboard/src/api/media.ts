@@ -88,3 +88,7 @@ export function useDeleteMedia() {
 export function mediaDownloadUrl(id: string): string {
   return `/api/media/${id}/download`
 }
+
+export function mediaThumbnailUrl(id: string): string {
+  return `/api/media/${id}/thumbnail`
+}

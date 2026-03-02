@@ -133,6 +133,7 @@ pub fn create_router(state: AppState) -> Router {
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_SIZE as usize))
         // Public routes (no auth required) — media download for player/agent access
         .route("/api/media/{id}/download", get(download_media))
+        .route("/api/media/{id}/thumbnail", get(media_thumbnail))
         .with_state(state)
         // Serve the web dashboard as static files (fallback for non-API routes)
         // SPA fallback: serve index.html for any route not matching a static file
@@ -732,6 +733,97 @@ async fn download_media(
     ];
 
     (headers, body).into_response()
+}
+
+async fn media_thumbnail(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let media = match db::get_media(&state.db, &id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("media_thumbnail: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    // Only generate thumbnails for video files
+    if !media.mime_type.starts_with("video/") {
+        // For images, redirect to the download endpoint
+        if media.mime_type.starts_with("image/") {
+            return axum::response::Redirect::temporary(&format!("/api/media/{id}/download"))
+                .into_response();
+        }
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    let source_path = PathBuf::from(&state.media_dir).join(&media.filename);
+    if !source_path.exists() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
+    // Thumbnail cache directory
+    let thumb_dir = PathBuf::from(&state.media_dir).join(".thumbs");
+    let thumb_path = thumb_dir.join(format!("{id}.jpg"));
+
+    // Return cached thumbnail if it exists
+    if thumb_path.exists() {
+        return serve_thumbnail(&thumb_path).await;
+    }
+
+    // Generate thumbnail via ffmpeg CLI
+    if let Err(e) = tokio::fs::create_dir_all(&thumb_dir).await {
+        tracing::error!("Failed to create thumbnail dir: {e}");
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+
+    let output = tokio::process::Command::new("ffmpeg")
+        .args([
+            "-i",
+            source_path.to_str().unwrap_or_default(),
+            "-vf",
+            "thumbnail,scale=320:-1",
+            "-frames:v",
+            "1",
+            "-y",
+            thumb_path.to_str().unwrap_or_default(),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await;
+
+    match output {
+        Ok(result) if result.status.success() && thumb_path.exists() => {
+            serve_thumbnail(&thumb_path).await
+        }
+        Ok(result) => {
+            let stderr = String::from_utf8_lossy(&result.stderr);
+            tracing::warn!("ffmpeg thumbnail failed for {id}: {stderr}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+        Err(e) => {
+            tracing::warn!("ffmpeg not available for thumbnails: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn serve_thumbnail(path: &std::path::Path) -> axum::response::Response {
+    match tokio::fs::read(path).await {
+        Ok(data) => {
+            let headers = [
+                (axum::http::header::CONTENT_TYPE, "image/jpeg".to_string()),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=86400".to_string(),
+                ),
+            ];
+            (headers, data).into_response()
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn delete_media(
