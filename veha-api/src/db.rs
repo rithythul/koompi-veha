@@ -273,6 +273,14 @@ pub async fn update_board_status(
     Ok(())
 }
 
+pub async fn delete_board(pool: &SqlitePool, id: &str) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query("DELETE FROM boards WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 /// Ensure a board row exists (upsert on agent registration).
 pub async fn upsert_board(pool: &SqlitePool, id: &str) -> Result<(), sqlx::Error> {
     sqlx::query(

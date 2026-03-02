@@ -51,6 +51,15 @@ export function useUpdateBoard(id: string) {
   })
 }
 
+export function useDeleteBoard() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient<null>(`/api/boards/${id}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['boards'] }),
+  })
+}
+
 export function useSendBoardCommand(id: string) {
   return useMutation({
     mutationFn: (command: PlayerCommand) =>

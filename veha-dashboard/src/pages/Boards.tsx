@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Monitor, Plus, Search, List, Map } from 'lucide-react'
-import { useBoards, useCreateBoard } from '../api/boards'
+import { Monitor, Plus, Search, List, Map, Trash2 } from 'lucide-react'
+import { useBoards, useCreateBoard, useDeleteBoard } from '../api/boards'
 import { useZones } from '../api/zones'
 import { useGroups } from '../api/groups'
 import { Button } from '../components/ui/Button'
@@ -10,6 +10,7 @@ import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
 import { Modal } from '../components/ui/Modal'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { Pagination } from '../components/ui/Pagination'
@@ -43,6 +44,8 @@ export default function Boards() {
   const [newName, setNewName] = useState('')
   const [newGroupId, setNewGroupId] = useState('')
   const createBoard = useCreateBoard()
+  const deleteBoard = useDeleteBoard()
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const toast = useToast()
 
   const boards = useMemo(() => {
@@ -69,6 +72,18 @@ export default function Boards() {
       setNewGroupId('')
     } catch (err: any) {
       toast.error(err.message)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteId) return
+    try {
+      await deleteBoard.mutateAsync(deleteId)
+      toast.success('Board deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -167,6 +182,7 @@ export default function Boards() {
                   <th className="px-4 py-3">Sell Mode</th>
                   <th className="px-4 py-3">Resolution</th>
                   <th className="px-4 py-3">Last Seen</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="text-sm">
@@ -193,6 +209,15 @@ export default function Boards() {
                         : '--'}
                     </td>
                     <td className="px-4 py-3 text-text-muted text-xs">{formatRelativeTime(board.last_seen)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); setDeleteId(board.id) }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-status-error" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -232,6 +257,16 @@ export default function Boards() {
           />
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={handleDelete}
+        title="Delete Board"
+        message="This will permanently delete this board and its play logs."
+        confirmLabel="Delete"
+        loading={deleteBoard.isPending}
+      />
     </div>
   )
 }

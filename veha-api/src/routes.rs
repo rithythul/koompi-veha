@@ -30,7 +30,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/auth/me", get(auth_me))
         // Boards
         .route("/api/boards", get(list_boards).post(create_board))
-        .route("/api/boards/{id}", get(get_board).put(update_board_handler))
+        .route("/api/boards/{id}", get(get_board).put(update_board_handler).delete(delete_board_handler))
         .route("/api/boards/{id}/command", post(send_board_command))
         // Groups
         .route("/api/groups", get(list_groups).post(create_group))
@@ -286,6 +286,22 @@ async fn update_board_handler(
         Ok(false) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => {
             tracing::error!("update_board: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        }
+    }
+}
+
+async fn delete_board_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    match db::delete_board(&state.db, &id).await {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => {
+            tracing::error!("delete_board: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
