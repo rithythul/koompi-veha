@@ -15,9 +15,23 @@ const GROUP_OPTIONS = [
   { value: 'campaign', label: 'By Campaign' },
 ]
 
+function getDefaultDates() {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const lastDay = new Date(y, now.getMonth() + 1, 0).getDate()
+  return {
+    start_date: `${y}-${m}-01`,
+    end_date: `${y}-${m}-${String(lastDay).padStart(2, '0')}`,
+  }
+}
+
 export default function Reports() {
+  const defaults = getDefaultDates()
   const [filter, setFilter] = useState<RevenueReportFilter>({
     group_by: 'advertiser',
+    start_date: defaults.start_date,
+    end_date: defaults.end_date,
   })
 
   const { data: report, isLoading } = useRevenueReport(filter)

@@ -55,6 +55,17 @@ pub struct BoardFilter {
 pub struct CreateBoard {
     pub name: String,
     pub group_id: Option<String>,
+    pub zone_id: Option<String>,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+    pub address: Option<String>,
+    pub board_type: Option<String>,
+    pub screen_width: Option<i32>,
+    pub screen_height: Option<i32>,
+    pub orientation: Option<String>,
+    pub sell_mode: Option<String>,
+    pub operating_hours_start: Option<String>,
+    pub operating_hours_end: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]

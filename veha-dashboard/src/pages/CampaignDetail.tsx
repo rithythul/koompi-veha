@@ -262,15 +262,16 @@ export default function CampaignDetail() {
                       {cr.duration_secs && (
                         <span className="text-xs text-text-muted">{cr.duration_secs}s</span>
                       )}
-                      <Badge variant="online" className="text-[10px]">{cr.status}</Badge>
-                      {cr.approval_status && (
-                        <Badge
-                          variant={cr.approval_status === 'approved' ? 'online' : cr.approval_status === 'rejected' ? 'warning' : 'default'}
-                          className="text-[10px]"
-                        >
-                          {cr.approval_status}
-                        </Badge>
-                      )}
+                      <Badge
+                        variant={
+                          cr.approval_status === 'approved' ? 'online'
+                            : cr.approval_status === 'rejected' ? 'error'
+                            : 'warning'
+                        }
+                        className="text-[10px]"
+                      >
+                        {cr.approval_status === 'pending_review' ? 'pending review' : cr.approval_status ?? cr.status}
+                      </Badge>
                     </div>
                     <div className="flex items-center gap-1">
                       {cr.approval_status === 'pending_review' && (

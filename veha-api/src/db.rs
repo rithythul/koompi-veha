@@ -182,12 +182,28 @@ pub async fn get_board(pool: &SqlitePool, id: &str) -> Result<Option<Board>, sql
 
 pub async fn create_board(pool: &SqlitePool, input: &CreateBoard) -> Result<Board, sqlx::Error> {
     let id = Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO boards (id, name, group_id) VALUES (?, ?, ?)")
-        .bind(&id)
-        .bind(&input.name)
-        .bind(&input.group_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO boards (id, name, group_id, zone_id, latitude, longitude, address, \
+         board_type, screen_width, screen_height, orientation, sell_mode, \
+         operating_hours_start, operating_hours_end) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(&id)
+    .bind(&input.name)
+    .bind(&input.group_id)
+    .bind(&input.zone_id)
+    .bind(input.latitude)
+    .bind(input.longitude)
+    .bind(&input.address)
+    .bind(&input.board_type)
+    .bind(input.screen_width)
+    .bind(input.screen_height)
+    .bind(&input.orientation)
+    .bind(&input.sell_mode)
+    .bind(&input.operating_hours_start)
+    .bind(&input.operating_hours_end)
+    .execute(pool)
+    .await?;
     get_board(pool, &id)
         .await?
         .ok_or_else(|| sqlx::Error::RowNotFound)
