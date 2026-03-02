@@ -515,6 +515,11 @@ AGENTEOF
 
 chmod 600 "$INSTALL_DIR/veha-agent.toml"
 
+# Ensure the desktop user can read configs (services run as DESKTOP_USER)
+if [ "$DESKTOP_USER" != "root" ]; then
+    chown "$DESKTOP_USER:${DESKTOP_GROUP:-$DESKTOP_USER}" "$INSTALL_DIR/veha-player.toml" "$INSTALL_DIR/veha-agent.toml"
+fi
+
 ok "Config files written"
 
 # ── Create systemd services ───────────────────────────────────────────────
