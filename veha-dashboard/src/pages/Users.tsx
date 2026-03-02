@@ -100,15 +100,16 @@ export default function Users() {
     }
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteUser.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('User deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteUser.mutateAsync(deleteId)
+      toast.success('User deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   return (

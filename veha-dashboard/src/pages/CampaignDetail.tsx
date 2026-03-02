@@ -79,15 +79,34 @@ export default function CampaignDetail() {
     )
   }
 
-  const handleDeleteCreative = () => {
+  const handleDeleteCreative = async () => {
     if (!deleteCreativeId) return
-    deleteCreative.mutate(deleteCreativeId, {
-      onSuccess: () => {
-        toast.success('Creative removed')
-        setDeleteCreativeId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteCreative.mutateAsync(deleteCreativeId)
+      toast.success('Creative removed')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteCreativeId(null)
+    }
+  }
+
+  const handleApproveCreative = async (creativeId: string) => {
+    try {
+      await approveCreative.mutateAsync(creativeId)
+      toast.success('Creative approved')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
+  }
+
+  const handleRejectCreative = async (creativeId: string) => {
+    try {
+      await rejectCreative.mutateAsync(creativeId)
+      toast.success('Creative rejected')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   return (
@@ -241,20 +260,16 @@ export default function CampaignDetail() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => approveCreative.mutate(cr.id, {
-                              onSuccess: () => toast.success('Creative approved'),
-                              onError: (err) => toast.error(err.message),
-                            })}
+                            onClick={() => handleApproveCreative(cr.id)}
+                            disabled={approveCreative.isPending || rejectCreative.isPending}
                           >
                             <Check className="w-3.5 h-3.5 text-status-online" />
                           </Button>
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => rejectCreative.mutate(cr.id, {
-                              onSuccess: () => toast.success('Creative rejected'),
-                              onError: (err) => toast.error(err.message),
-                            })}
+                            onClick={() => handleRejectCreative(cr.id)}
+                            disabled={approveCreative.isPending || rejectCreative.isPending}
                           >
                             <X className="w-3.5 h-3.5 text-status-error" />
                           </Button>

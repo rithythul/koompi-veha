@@ -90,15 +90,16 @@ export default function Schedules() {
     })
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteSchedule.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('Schedule deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteSchedule.mutateAsync(deleteId)
+      toast.success('Schedule deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   const toggleDay = (day: number) => {

@@ -49,15 +49,16 @@ export default function Groups() {
     })
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteGroup.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('Group deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteGroup.mutateAsync(deleteId)
+      toast.success('Group deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   return (

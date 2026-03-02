@@ -116,16 +116,18 @@ export default function Zones() {
     })
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteZone.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('Zone deleted')
-        setDeleteId(null)
-        if (selectedId === deleteId) setSelectedId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    const wasSelected = selectedId === deleteId
+    try {
+      await deleteZone.mutateAsync(deleteId)
+      toast.success('Zone deleted')
+      if (wasSelected) setSelectedId(null)
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   return (

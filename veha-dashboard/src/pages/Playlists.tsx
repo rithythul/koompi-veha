@@ -55,15 +55,16 @@ export default function Playlists() {
     })
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deletePlaylist.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('Playlist deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deletePlaylist.mutateAsync(deleteId)
+      toast.success('Playlist deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   const addMediaItem = (mediaId: string) => {

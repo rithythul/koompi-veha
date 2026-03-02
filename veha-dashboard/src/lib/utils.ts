@@ -86,6 +86,23 @@ export function getDaysOfWeekLabels(csv: string): string {
   return indices.map((i) => days[i] ?? '?').join(', ')
 }
 
+export async function copyToClipboard(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    // Fallback for non-HTTPS (e.g. http://192.168.x.x)
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+}
+
 export function formatCurrency(amount: number | null | undefined, currency?: string | null): string {
   if (amount == null) return '--'
   const cur = currency || 'USD'

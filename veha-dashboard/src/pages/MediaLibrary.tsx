@@ -55,15 +55,16 @@ export default function MediaLibrary() {
   const totalPages = Math.ceil((data?.total ?? 0) / 24)
   const previewItem = items.find((m) => m.id === previewId)
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteMedia.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('Media deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteMedia.mutateAsync(deleteId)
+      toast.success('Media deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   const openRename = (id: string, currentName: string) => {

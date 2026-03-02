@@ -61,15 +61,16 @@ export default function Advertisers() {
     })
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteAdv.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('Advertiser deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteAdv.mutateAsync(deleteId)
+      toast.success('Advertiser deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   return (

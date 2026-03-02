@@ -9,7 +9,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/Toast'
-import { formatDateTime } from '../lib/utils'
+import { formatDateTime, copyToClipboard } from '../lib/utils'
 
 export default function Settings() {
   const { data: keys, isLoading } = useApiKeys()
@@ -40,21 +40,26 @@ export default function Settings() {
 
   const handleCopy = async () => {
     if (!createdKey) return
-    await navigator.clipboard.writeText(createdKey)
-    setCopied(true)
-    toast.success('API key copied to clipboard')
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await copyToClipboard(createdKey)
+      setCopied(true)
+      toast.success('API key copied to clipboard')
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      toast.error('Failed to copy to clipboard')
+    }
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteKey.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('API key deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteKey.mutateAsync(deleteId)
+      toast.success('API key deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   if (isLoading) return <PageSpinner />

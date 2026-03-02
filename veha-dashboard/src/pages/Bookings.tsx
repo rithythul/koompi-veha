@@ -117,15 +117,16 @@ export default function Bookings() {
     })
   }
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteId) return
-    deleteBooking.mutate(deleteId, {
-      onSuccess: () => {
-        toast.success('Booking deleted')
-        setDeleteId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await deleteBooking.mutateAsync(deleteId)
+      toast.success('Booking deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
+    }
   }
 
   const toggleDay = (day: number) => {
