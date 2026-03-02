@@ -19,3 +19,4 @@ veha-api/static/favicon.svg
 veha-dashboard/node_modules/
 veha-dashboard/dist/
 .worktrees/
+/dist/
