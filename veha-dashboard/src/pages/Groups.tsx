@@ -36,17 +36,17 @@ export default function Groups() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const mutation = editId ? updateGroup : createGroup
-    mutation.mutate({ name }, {
-      onSuccess: () => {
-        toast.success(editId ? 'Group updated' : 'Group created')
-        setShowForm(false)
-        setEditId(null)
-        setName('')
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await mutation.mutateAsync({ name })
+      toast.success(editId ? 'Group updated' : 'Group created')
+      setShowForm(false)
+      setEditId(null)
+      setName('')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleDelete = async () => {

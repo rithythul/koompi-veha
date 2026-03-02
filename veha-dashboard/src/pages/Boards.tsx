@@ -60,19 +60,16 @@ export default function Boards() {
 
   if (isLoading) return <PageSpinner />
 
-  const handleCreate = () => {
-    createBoard.mutate(
-      { name: newName, group_id: newGroupId || undefined },
-      {
-        onSuccess: () => {
-          toast.success('Board created')
-          setShowCreate(false)
-          setNewName('')
-          setNewGroupId('')
-        },
-        onError: (err) => toast.error(err.message),
-      },
-    )
+  const handleCreate = async () => {
+    try {
+      await createBoard.mutateAsync({ name: newName, group_id: newGroupId || undefined })
+      toast.success('Board created')
+      setShowCreate(false)
+      setNewName('')
+      setNewGroupId('')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   return (

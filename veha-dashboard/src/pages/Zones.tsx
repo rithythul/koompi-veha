@@ -105,15 +105,15 @@ export default function Zones() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const mutation = editZone ? updateZone : createZone
-    mutation.mutate(formData, {
-      onSuccess: () => {
-        toast.success(editZone ? 'Zone updated' : 'Zone created')
-        setShowForm(false)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await mutation.mutateAsync(formData)
+      toast.success(editZone ? 'Zone updated' : 'Zone created')
+      setShowForm(false)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleDelete = async () => {

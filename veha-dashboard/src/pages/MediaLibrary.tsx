@@ -72,15 +72,16 @@ export default function MediaLibrary() {
     setRenameName(currentName)
   }
 
-  const handleRename = () => {
+  const handleRename = async () => {
     if (!renameId || !renameName.trim()) return
-    renameMedia.mutate({ id: renameId, name: renameName.trim() }, {
-      onSuccess: () => {
-        toast.success('Media renamed')
-        setRenameId(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await renameMedia.mutateAsync({ id: renameId, name: renameName.trim() })
+      toast.success('Media renamed')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setRenameId(null)
+    }
   }
 
   const isVideo = (mime: string) => mime.startsWith('video/')

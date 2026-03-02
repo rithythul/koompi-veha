@@ -40,11 +40,13 @@ export default function Alerts() {
   const alerts = data?.data ?? []
   const total = data?.total ?? 0
 
-  const handleAcknowledge = (id: string) => {
-    acknowledge.mutate(id, {
-      onSuccess: () => toast.success('Alert acknowledged'),
-      onError: (err) => toast.error(err.message),
-    })
+  const handleAcknowledge = async (id: string) => {
+    try {
+      await acknowledge.mutateAsync(id)
+      toast.success('Alert acknowledged')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   if (isLoading) return <PageSpinner />

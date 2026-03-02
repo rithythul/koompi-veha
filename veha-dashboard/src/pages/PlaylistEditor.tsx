@@ -193,26 +193,23 @@ export default function PlaylistEditor() {
     navigate('/playlists')
   }
 
-  const handleSave = () => {
-    updatePlaylist.mutate(
-      {
+  const handleSave = async () => {
+    try {
+      await updatePlaylist.mutateAsync({
         name: state.name,
         items: state.items,
         loop_playlist: state.loop,
-      },
-      {
-        onSuccess: () => {
-          toast.success('Playlist saved')
-          dispatch({
-            type: 'INIT',
-            name: state.name,
-            loop: state.loop,
-            items: state.items,
-          })
-        },
-        onError: (err) => toast.error(err.message),
-      },
-    )
+      })
+      toast.success('Playlist saved')
+      dispatch({
+        type: 'INIT',
+        name: state.name,
+        loop: state.loop,
+        items: state.items,
+      })
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const addMediaItem = (mediaId: string) => {

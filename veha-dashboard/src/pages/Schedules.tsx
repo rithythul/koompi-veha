@@ -72,7 +72,7 @@ export default function Schedules() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const payload: CreateSchedule = {
       ...formData,
       days_of_week: selectedDays.sort().join(','),
@@ -80,14 +80,14 @@ export default function Schedules() {
     if (targetType === 'board') delete payload.group_id
     else delete payload.board_id
     const mutation = editItem ? updateSchedule : createSchedule
-    mutation.mutate(payload, {
-      onSuccess: () => {
-        toast.success(editItem ? 'Schedule updated' : 'Schedule created')
-        setShowForm(false)
-        setEditItem(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await mutation.mutateAsync(payload)
+      toast.success(editItem ? 'Schedule updated' : 'Schedule created')
+      setShowForm(false)
+      setEditItem(null)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleDelete = async () => {

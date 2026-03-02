@@ -74,16 +74,16 @@ export default function Campaigns() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const mutation = editItem ? updateCampaign : createCampaign
-    mutation.mutate(formData, {
-      onSuccess: () => {
-        toast.success(editItem ? 'Campaign updated' : 'Campaign created')
-        setShowForm(false)
-        setEditItem(null)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await mutation.mutateAsync(formData)
+      toast.success(editItem ? 'Campaign updated' : 'Campaign created')
+      setShowForm(false)
+      setEditItem(null)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const CampaignCard = ({ campaign }: { campaign: Campaign }) => (

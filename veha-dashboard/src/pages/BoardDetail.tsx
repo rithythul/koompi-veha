@@ -41,11 +41,13 @@ export default function BoardDetail() {
   const logs = logsData?.data ?? []
   const resolvedItems = schedule?.items ?? []
 
-  const handleCommand = (command: PlayerCommand) => {
-    sendCommand.mutate(command, {
-      onSuccess: () => toast.success(`Command sent: ${command.type}`),
-      onError: (err) => toast.error(err.message),
-    })
+  const handleCommand = async (command: PlayerCommand) => {
+    try {
+      await sendCommand.mutateAsync(command)
+      toast.success(`Command sent: ${command.type}`)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const openEdit = () => {
@@ -64,14 +66,14 @@ export default function BoardDetail() {
     setShowEdit(true)
   }
 
-  const handleSaveBoard = () => {
-    updateBoard.mutate(editData, {
-      onSuccess: () => {
-        toast.success('Board updated')
-        setShowEdit(false)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+  const handleSaveBoard = async () => {
+    try {
+      await updateBoard.mutateAsync(editData)
+      toast.success('Board updated')
+      setShowEdit(false)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const cmdBtn = (label: string, icon: React.ReactNode, command: PlayerCommand) => (

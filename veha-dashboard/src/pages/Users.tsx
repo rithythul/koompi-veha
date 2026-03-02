@@ -63,40 +63,34 @@ export default function Users() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
-    if (editItem) {
-      const payload: UpdateUser = {}
-      if (formData.username && formData.username !== editItem.username) {
-        payload.username = formData.username
+  const handleSave = async () => {
+    try {
+      if (editItem) {
+        const payload: UpdateUser = {}
+        if (formData.username && formData.username !== editItem.username) {
+          payload.username = formData.username
+        }
+        if (formData.role && formData.role !== editItem.role) {
+          payload.role = formData.role
+        }
+        if (formData.password) {
+          payload.password = formData.password
+        }
+        await updateUser.mutateAsync(payload)
+        toast.success('User updated')
+      } else {
+        if (!formData.username || !formData.password) {
+          toast.error('Username and password are required')
+          return
+        }
+        await createUser.mutateAsync(
+          { username: formData.username, password: formData.password, role: formData.role },
+        )
+        toast.success('User created')
       }
-      if (formData.role && formData.role !== editItem.role) {
-        payload.role = formData.role
-      }
-      if (formData.password) {
-        payload.password = formData.password
-      }
-      updateUser.mutate(payload, {
-        onSuccess: () => {
-          toast.success('User updated')
-          setShowForm(false)
-        },
-        onError: (err) => toast.error(err.message),
-      })
-    } else {
-      if (!formData.username || !formData.password) {
-        toast.error('Username and password are required')
-        return
-      }
-      createUser.mutate(
-        { username: formData.username, password: formData.password, role: formData.role },
-        {
-          onSuccess: () => {
-            toast.success('User created')
-            setShowForm(false)
-          },
-          onError: (err) => toast.error(err.message),
-        },
-      )
+      setShowForm(false)
+    } catch (err: any) {
+      toast.error(err.message)
     }
   }
 

@@ -44,15 +44,15 @@ export default function Playlists() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const payload: CreatePlaylist = { name: formName, items: formItems, loop_playlist: formLoop }
-    createPlaylist.mutate(payload, {
-      onSuccess: () => {
-        toast.success('Playlist created')
-        setShowForm(false)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await createPlaylist.mutateAsync(payload)
+      toast.success('Playlist created')
+      setShowForm(false)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleDelete = async () => {

@@ -105,16 +105,16 @@ export default function Bookings() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const payload: CreateBooking = { ...formData, days_of_week: selectedDays.sort().join(',') }
     const mutation = editItem ? updateBooking : createBooking
-    mutation.mutate(payload, {
-      onSuccess: () => {
-        toast.success(editItem ? 'Booking updated' : 'Booking created')
-        setShowForm(false)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await mutation.mutateAsync(payload)
+      toast.success(editItem ? 'Booking updated' : 'Booking created')
+      setShowForm(false)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleDelete = async () => {

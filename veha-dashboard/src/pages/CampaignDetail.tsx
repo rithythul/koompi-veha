@@ -51,32 +51,33 @@ export default function CampaignDetail() {
   const creativesList = creatives ?? []
   const bookings = bookingsData?.data ?? []
 
-  const handleActivate = () => {
-    activate.mutate(undefined, {
-      onSuccess: () => toast.success('Campaign activated'),
-      onError: (err) => toast.error(err.message),
-    })
+  const handleActivate = async () => {
+    try {
+      await activate.mutateAsync(undefined)
+      toast.success('Campaign activated')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
-  const handlePause = () => {
-    pause.mutate(undefined, {
-      onSuccess: () => toast.success('Campaign paused'),
-      onError: (err) => toast.error(err.message),
-    })
+  const handlePause = async () => {
+    try {
+      await pause.mutateAsync(undefined)
+      toast.success('Campaign paused')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
-  const handleAddCreative = (mediaId: string) => {
+  const handleAddCreative = async (mediaId: string) => {
     const media = mediaList.find((m) => m.id === mediaId)
-    createCreative.mutate(
-      { media_id: mediaId, name: media?.name },
-      {
-        onSuccess: () => {
-          toast.success('Creative added')
-          setShowMediaPicker(false)
-        },
-        onError: (err) => toast.error(err.message),
-      },
-    )
+    try {
+      await createCreative.mutateAsync({ media_id: mediaId, name: media?.name })
+      toast.success('Creative added')
+      setShowMediaPicker(false)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleDeleteCreative = async () => {

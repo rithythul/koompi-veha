@@ -50,15 +50,15 @@ export default function Advertisers() {
     setShowForm(true)
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const mutation = editItem ? updateAdv : createAdv
-    mutation.mutate(formData, {
-      onSuccess: () => {
-        toast.success(editItem ? 'Advertiser updated' : 'Advertiser created')
-        setShowForm(false)
-      },
-      onError: (err) => toast.error(err.message),
-    })
+    try {
+      await mutation.mutateAsync(formData)
+      toast.success(editItem ? 'Advertiser updated' : 'Advertiser created')
+      setShowForm(false)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleDelete = async () => {

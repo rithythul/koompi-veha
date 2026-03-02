@@ -23,19 +23,16 @@ export default function Settings() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!keyName.trim()) return
-    createKey.mutate(
-      { name: keyName.trim() },
-      {
-        onSuccess: (data) => {
-          setCreatedKey(data.key)
-          setKeyName('')
-          setShowCreate(false)
-        },
-        onError: (err) => toast.error(err.message),
-      },
-    )
+    try {
+      const data = await createKey.mutateAsync({ name: keyName.trim() })
+      setCreatedKey(data.key)
+      setKeyName('')
+      setShowCreate(false)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
   }
 
   const handleCopy = async () => {
