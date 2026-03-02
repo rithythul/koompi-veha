@@ -454,7 +454,7 @@ run_as_build_user() {
     if [ "$BUILD_USER" = "root" ]; then
         env PATH="$CARGO_BIN:/usr/local/bin:/usr/bin:/bin:$PATH" ${LIBCLANG_ENV:+$LIBCLANG_ENV} "$@"
     else
-        su - "$BUILD_USER" -c "cd '$BUILD_DIR/veha' && export PATH='$CARGO_BIN:/usr/local/bin:/usr/bin:/bin:\$PATH' ${LIBCLANG_ENV:+&& export $LIBCLANG_ENV} && $*"
+        su - "$BUILD_USER" -c "cd '$BUILD_DIR/veha' && export PATH=\"$CARGO_BIN:/usr/local/bin:/usr/bin:/bin:\$PATH\" ${LIBCLANG_ENV:+&& export $LIBCLANG_ENV} && $*"
     fi
 }
 
