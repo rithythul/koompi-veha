@@ -156,12 +156,12 @@ pub async fn handle_agent_socket(
             match serde_json::from_str::<WsMessage>(&text) {
                 Ok(WsMessage::Status { status }) => {
                     tracing::debug!("Status from {}: {:?}", bid, status);
-                    // Update the board's status in the database.
-                    let state_str = &status.state;
+                    // The agent is connected and reporting, so the board is online.
+                    // Store "online" as the connectivity status (not the player state).
                     let _ =
-                        crate::db::update_board_status(&db_clone, &bid, state_str).await;
-                    // Broadcast status change to all connected dashboards.
-                    broadcast_board_status(&dashboards, &bid, state_str).await;
+                        crate::db::update_board_status(&db_clone, &bid, "online").await;
+                    // Broadcast online status to all connected dashboards.
+                    broadcast_board_status(&dashboards, &bid, "online").await;
                 }
                 Ok(WsMessage::PlayReport {
                     booking_id, creative_id, media_id,
