@@ -22,6 +22,7 @@ export default function Settings() {
   const [createdKey, setCreatedKey] = useState<string | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [copiedPreview, setCopiedPreview] = useState<string | null>(null)
 
   const handleCreate = async () => {
     if (!keyName.trim()) return
@@ -106,9 +107,29 @@ export default function Settings() {
                   <tr key={k.id} className="border-b border-border-default last:border-0">
                     <td className="py-2.5 text-text-primary font-medium">{k.name}</td>
                     <td className="py-2.5">
-                      <code className="text-xs bg-bg-elevated px-1.5 py-0.5 rounded text-text-secondary">
-                        {k.preview}...
-                      </code>
+                      <button
+                        className="inline-flex items-center gap-1.5 group cursor-pointer"
+                        onClick={async () => {
+                          try {
+                            await copyToClipboard(k.preview)
+                            setCopiedPreview(k.id)
+                            toast.success('Key preview copied')
+                            setTimeout(() => setCopiedPreview(null), 2000)
+                          } catch {
+                            toast.error('Failed to copy')
+                          }
+                        }}
+                        title="Click to copy"
+                      >
+                        <code className="text-xs bg-bg-elevated px-1.5 py-0.5 rounded text-text-secondary group-hover:text-text-primary transition-colors">
+                          {k.preview}...
+                        </code>
+                        {copiedPreview === k.id ? (
+                          <Check className="w-3 h-3 text-status-success" />
+                        ) : (
+                          <Copy className="w-3 h-3 text-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+                        )}
+                      </button>
                     </td>
                     <td className="py-2.5 text-text-muted">{formatDateTime(k.created_at)}</td>
                     <td className="py-2.5 text-text-muted">
