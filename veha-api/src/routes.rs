@@ -38,7 +38,6 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/groups/{id}/command", post(send_group_command))
         // Media
         .route("/api/media", get(list_media).post(upload_media))
-        .route("/api/media/{id}/download", get(download_media))
         .route("/api/media/{id}", put(rename_media_handler).delete(delete_media))
         // Playlists
         .route("/api/playlists", get(list_playlists).post(create_playlist))
@@ -124,6 +123,8 @@ pub fn create_router(state: AppState) -> Router {
             state.clone(),
             auth::require_auth,
         ))
+        // Public routes (no auth required) — media download for player/agent access
+        .route("/api/media/{id}/download", get(download_media))
         .with_state(state)
         // Serve the web dashboard as static files (fallback for non-API routes)
         // SPA fallback: serve index.html for any route not matching a static file

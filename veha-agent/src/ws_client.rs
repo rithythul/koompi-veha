@@ -289,9 +289,22 @@ async fn handle_server_message(text: &str, socket_path: &str, api_base_url: &str
                 }
             };
             let command = PlayerCommand::LoadPlaylist(playlist_json);
-            match player_client::send_command(socket_path, &command).await {
-                Ok(resp) => debug!("Player loaded schedule: {resp}"),
-                Err(e) => error!("Failed to load schedule: {e}"),
+            // Retry a few times in case the player socket isn't ready yet
+            for attempt in 0..5 {
+                match player_client::send_command(socket_path, &command).await {
+                    Ok(resp) => {
+                        debug!("Player loaded schedule: {resp}");
+                        break;
+                    }
+                    Err(e) => {
+                        if attempt < 4 {
+                            warn!("Failed to load schedule (attempt {}), retrying in 2s: {e}", attempt + 1);
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                        } else {
+                            error!("Failed to load schedule after 5 attempts: {e}");
+                        }
+                    }
+                }
             }
         }
         Ok(other) => {
