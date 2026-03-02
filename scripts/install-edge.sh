@@ -105,21 +105,29 @@ case "$RES_CHOICE" in
     *) WIDTH=1920; HEIGHT=1080 ;;
 esac
 
-# Output backend
+# Output backend — auto-detect desktop environment
+if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${XDG_CURRENT_DESKTOP:-}" ]; then
+    DEFAULT_BACKEND=2
+    DETECT_MSG=" (desktop detected)"
+else
+    DEFAULT_BACKEND=1
+    DETECT_MSG=" (no desktop detected)"
+fi
+
 echo ""
-echo "  Output backend:"
-echo "    1) framebuffer (recommended — direct HDMI, no desktop needed)"
-echo "    2) window (X11 desktop required)"
+echo "  Output backend${DETECT_MSG}:"
+echo "    1) framebuffer (headless — direct HDMI, no desktop needed)"
+echo "    2) window (desktop — X11/Wayland, can run fullscreen)"
 echo "    3) null (testing only, no display output)"
 echo ""
-prompt "Select output [1]: " BACKEND_CHOICE
-BACKEND_CHOICE=${BACKEND_CHOICE:-1}
+prompt "Select output [${DEFAULT_BACKEND}]: " BACKEND_CHOICE
+BACKEND_CHOICE=${BACKEND_CHOICE:-$DEFAULT_BACKEND}
 
 case "$BACKEND_CHOICE" in
     1) OUTPUT_BACKEND="framebuffer" ;;
     2) OUTPUT_BACKEND="window" ;;
     3) OUTPUT_BACKEND="null" ;;
-    *) OUTPUT_BACKEND="framebuffer" ;;
+    *) OUTPUT_BACKEND="window" ;;
 esac
 
 # API key (optional)
