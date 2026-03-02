@@ -185,6 +185,17 @@ install_deps
 install_rust
 export PATH="$HOME/.cargo/bin:$PATH"
 
+# Ensure bindgen can find libclang
+if [ -z "${LIBCLANG_PATH:-}" ]; then
+    for dir in /usr/lib /usr/lib64 /usr/lib/llvm-*/lib; do
+        if ls "$dir"/libclang.so* &>/dev/null 2>&1; then
+            export LIBCLANG_PATH="$dir"
+            break
+        fi
+    done
+fi
+[ -n "${LIBCLANG_PATH:-}" ] && info "LIBCLANG_PATH=$LIBCLANG_PATH"
+
 # Verify FFmpeg
 if ! pkg-config --exists libavcodec 2>/dev/null; then
     warn "FFmpeg dev libraries not detected by pkg-config."

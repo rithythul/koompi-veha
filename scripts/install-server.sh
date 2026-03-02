@@ -103,6 +103,17 @@ install_bun
 # Ensure cargo is in PATH
 export PATH="$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 
+# Ensure bindgen can find libclang
+if [ -z "${LIBCLANG_PATH:-}" ]; then
+    for dir in /usr/lib /usr/lib64 /usr/lib/llvm-*/lib; do
+        if ls "$dir"/libclang.so* &>/dev/null 2>&1; then
+            export LIBCLANG_PATH="$dir"
+            break
+        fi
+    done
+fi
+[ -n "${LIBCLANG_PATH:-}" ] && info "LIBCLANG_PATH=$LIBCLANG_PATH"
+
 # ── Clone and build ────────────────────────────────────────────────────────
 
 BUILD_DIR=$(mktemp -d)
