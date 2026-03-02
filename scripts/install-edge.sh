@@ -134,6 +134,49 @@ esac
 prompt "API key (blank if none): " API_KEY
 API_KEY=${API_KEY:-}
 
+# Detect desktop user + display vars when window backend is selected
+DESKTOP_USER="root"
+DESKTOP_ENV_LINES=""
+SERVICE_AFTER="network.target"
+SERVICE_TARGET="multi-user.target"
+
+if [ "$OUTPUT_BACKEND" = "window" ]; then
+    # Find the logged-in desktop user (the one who invoked sudo)
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        DESKTOP_USER="$SUDO_USER"
+    else
+        # Fallback: find who owns the display session
+        DESKTOP_USER=$(who | grep -E 'tty|:0|seat' | head -1 | awk '{print $1}')
+        DESKTOP_USER=${DESKTOP_USER:-root}
+    fi
+
+    DESKTOP_UID=$(id -u "$DESKTOP_USER" 2>/dev/null || echo 1000)
+    XDG_DIR="/run/user/$DESKTOP_UID"
+
+    # Detect display server
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+        DESKTOP_ENV_LINES="Environment=WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
+Environment=XDG_RUNTIME_DIR=${XDG_DIR}"
+    elif [ -n "${DISPLAY:-}" ]; then
+        DESKTOP_ENV_LINES="Environment=DISPLAY=${DISPLAY}
+Environment=XAUTHORITY=/home/${DESKTOP_USER}/.Xauthority"
+    else
+        # Try to detect from the user's session
+        if [ -S "${XDG_DIR}/wayland-0" ] || [ -S "${XDG_DIR}/wayland-1" ]; then
+            WL_SOCK=$(ls "${XDG_DIR}"/wayland-* 2>/dev/null | head -1 | xargs basename)
+            DESKTOP_ENV_LINES="Environment=WAYLAND_DISPLAY=${WL_SOCK}
+Environment=XDG_RUNTIME_DIR=${XDG_DIR}"
+        else
+            DESKTOP_ENV_LINES="Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/${DESKTOP_USER}/.Xauthority"
+        fi
+    fi
+
+    SERVICE_AFTER="network.target graphical.target"
+    SERVICE_TARGET="graphical.target"
+    info "Window backend: services will run as $DESKTOP_USER"
+fi
+
 echo ""
 info "Configuration summary:"
 echo "  Server:   $SERVER_URL"
@@ -141,6 +184,9 @@ echo "  WS URL:   $WS_URL"
 echo "  Board ID: $BOARD_ID"
 echo "  Name:     $BOARD_NAME"
 echo "  Display:  ${WIDTH}x${HEIGHT} ($OUTPUT_BACKEND)"
+if [ "$OUTPUT_BACKEND" = "window" ]; then
+    echo "  Run as:   $DESKTOP_USER (desktop session)"
+fi
 echo ""
 prompt "Continue? [Y/n]: " CONFIRM
 CONFIRM=${CONFIRM:-Y}
@@ -266,7 +312,7 @@ info "Creating systemd services..."
 cat > /etc/systemd/system/veha-player.service <<SVCEOF
 [Unit]
 Description=Veha Billboard Player
-After=network.target
+After=$SERVICE_AFTER
 
 [Service]
 Type=simple
@@ -274,11 +320,12 @@ ExecStart=$INSTALL_DIR/veha-player -c $INSTALL_DIR/veha-player.toml
 WorkingDirectory=$INSTALL_DIR
 Restart=always
 RestartSec=5
-User=root
+User=$DESKTOP_USER
+$DESKTOP_ENV_LINES
 ExecStopPost=/bin/rm -f /tmp/veha-player.sock
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=$SERVICE_TARGET
 SVCEOF
 
 cat > /etc/systemd/system/veha-agent.service <<SVCEOF
@@ -294,10 +341,10 @@ ExecStart=$INSTALL_DIR/veha-agent -c $INSTALL_DIR/veha-agent.toml
 WorkingDirectory=$INSTALL_DIR
 Restart=always
 RestartSec=5
-User=root
+User=$DESKTOP_USER
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=$SERVICE_TARGET
 SVCEOF
 
 systemctl daemon-reload
