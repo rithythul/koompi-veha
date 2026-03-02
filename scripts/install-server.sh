@@ -28,6 +28,12 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
+# prompt "message" VARNAME — reads from /dev/tty so curl|bash works
+prompt() {
+    local msg="$1" var="$2"
+    read -rp "$msg" "$var" </dev/tty
+}
+
 # ── Preflight ───────────────────────────────────────────────────────────────
 
 [ "$(id -u)" -eq 0 ] || fail "This script must be run as root (or with sudo)"
@@ -135,14 +141,14 @@ echo -e "${BOLD}Server Configuration${NC}"
 echo ""
 
 # Bind address
-read -rp "Bind address [0.0.0.0:3000]: " BIND_ADDR
+prompt "Bind address [0.0.0.0:3000]: " BIND_ADDR
 BIND_ADDR=${BIND_ADDR:-0.0.0.0:3000}
 
 # CORS origins (optional)
-read -rp "CORS origins (comma-separated, blank for permissive): " CORS_ORIGINS
+prompt "CORS origins (comma-separated, blank for permissive): " CORS_ORIGINS
 
 # API key for agents (optional)
-read -rp "API key for agent auth (blank to disable): " API_KEY
+prompt "API key for agent auth (blank to disable): " API_KEY
 
 # ── Create systemd service ─────────────────────────────────────────────────
 

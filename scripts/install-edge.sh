@@ -27,6 +27,12 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
+# prompt "message" VARNAME — reads from /dev/tty so curl|bash works
+prompt() {
+    local msg="$1" var="$2"
+    read -rp "$msg" "$var" </dev/tty
+}
+
 # ── Preflight ───────────────────────────────────────────────────────────────
 
 [ "$(id -u)" -eq 0 ] || fail "This script must be run as root (or with sudo)"
@@ -52,7 +58,7 @@ echo ""
 
 # Server URL (required)
 while true; do
-    read -rp "API server URL (e.g. http://192.168.1.100:3000): " SERVER_URL
+    prompt "API server URL (e.g. http://192.168.1.100:3000): " SERVER_URL
     SERVER_URL=${SERVER_URL%/}  # strip trailing slash
     if [ -n "$SERVER_URL" ]; then
         break
@@ -66,7 +72,7 @@ WS_URL="${WS_URL}/ws/agent"
 
 # Board ID (required)
 while true; do
-    read -rp "Board ID (unique, e.g. board-pp-riverside-001): " BOARD_ID
+    prompt "Board ID (unique, e.g. board-pp-riverside-001): " BOARD_ID
     if [ -n "$BOARD_ID" ]; then
         break
     fi
@@ -74,7 +80,7 @@ while true; do
 done
 
 # Board name
-read -rp "Board name [${BOARD_ID}]: " BOARD_NAME
+prompt "Board name [${BOARD_ID}]: " BOARD_NAME
 BOARD_NAME=${BOARD_NAME:-$BOARD_ID}
 
 # Resolution
@@ -85,7 +91,7 @@ echo "    2) 1080x1920 (Full HD portrait)"
 echo "    3) 3840x2160 (4K UHD)"
 echo "    4) Custom"
 echo ""
-read -rp "Select resolution [1]: " RES_CHOICE
+prompt "Select resolution [1]: " RES_CHOICE
 RES_CHOICE=${RES_CHOICE:-1}
 
 case "$RES_CHOICE" in
@@ -93,8 +99,8 @@ case "$RES_CHOICE" in
     2) WIDTH=1080; HEIGHT=1920 ;;
     3) WIDTH=3840; HEIGHT=2160 ;;
     4)
-        read -rp "  Width: " WIDTH
-        read -rp "  Height: " HEIGHT
+        prompt "  Width: " WIDTH
+        prompt "  Height: " HEIGHT
         ;;
     *) WIDTH=1920; HEIGHT=1080 ;;
 esac
@@ -106,7 +112,7 @@ echo "    1) framebuffer (recommended — direct HDMI, no desktop needed)"
 echo "    2) window (X11 desktop required)"
 echo "    3) null (testing only, no display output)"
 echo ""
-read -rp "Select output [1]: " BACKEND_CHOICE
+prompt "Select output [1]: " BACKEND_CHOICE
 BACKEND_CHOICE=${BACKEND_CHOICE:-1}
 
 case "$BACKEND_CHOICE" in
@@ -117,7 +123,7 @@ case "$BACKEND_CHOICE" in
 esac
 
 # API key (optional)
-read -rp "API key (blank if none): " API_KEY
+prompt "API key (blank if none): " API_KEY
 API_KEY=${API_KEY:-}
 
 echo ""
@@ -128,7 +134,7 @@ echo "  Board ID: $BOARD_ID"
 echo "  Name:     $BOARD_NAME"
 echo "  Display:  ${WIDTH}x${HEIGHT} ($OUTPUT_BACKEND)"
 echo ""
-read -rp "Continue? [Y/n]: " CONFIRM
+prompt "Continue? [Y/n]: " CONFIRM
 CONFIRM=${CONFIRM:-Y}
 case "$CONFIRM" in
     [Yy]*) ;;
