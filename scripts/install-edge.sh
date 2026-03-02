@@ -264,6 +264,7 @@ if [ "$OUTPUT_BACKEND" = "window" ]; then
     fi
 
     DESKTOP_UID=$(id -u "$DESKTOP_USER" 2>/dev/null || echo 1000)
+    DESKTOP_GROUP=$(id -gn "$DESKTOP_USER" 2>/dev/null || echo "$DESKTOP_USER")
     DESKTOP_HOME=$(getent passwd "$DESKTOP_USER" | cut -d: -f6)
     DESKTOP_HOME=${DESKTOP_HOME:-/home/$DESKTOP_USER}
     XDG_DIR="/run/user/$DESKTOP_UID"
@@ -360,6 +361,7 @@ install_rust() {
         RUST_PREEXISTING=false
     fi
     CARGO_BIN="$BUILD_HOME/.cargo/bin"
+    BUILD_GROUP=$(id -gn "$BUILD_USER" 2>/dev/null || echo "$BUILD_USER")
 }
 
 install_deps
@@ -394,7 +396,7 @@ info "Cloning repository..."
 git clone --depth 1 ${VEHA_VERSION:+--branch "$VEHA_VERSION"} "https://github.com/$REPO.git" "$BUILD_DIR/veha"
 
 # Build as BUILD_USER
-chown -R "$BUILD_USER:$BUILD_USER" "$BUILD_DIR"
+chown -R "$BUILD_USER:$BUILD_GROUP" "$BUILD_DIR"
 
 FEATURES_FLAG=""
 if [ "$OUTPUT_BACKEND" = "framebuffer" ]; then
@@ -441,7 +443,7 @@ done
 # Create runtime and cache directories
 mkdir -p /run/veha
 mkdir -p /var/cache/veha
-chown "$DESKTOP_USER:$DESKTOP_USER" /run/veha /var/cache/veha
+chown "$DESKTOP_USER:${DESKTOP_GROUP:-$DESKTOP_USER}" /run/veha /var/cache/veha
 
 # Player config
 cat > "$INSTALL_DIR/veha-player.toml" <<PLAYEREOF
