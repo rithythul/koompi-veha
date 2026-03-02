@@ -43,13 +43,13 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fail()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
-# Detect interactive mode (has /dev/tty)
+# Detect interactive mode — test if /dev/tty is actually readable
 INTERACTIVE=false
-if [ -c /dev/tty ] 2>/dev/null; then
+if (echo -n '' > /dev/tty) 2>/dev/null; then
     INTERACTIVE=true
 fi
 
-# prompt "message" VARNAME — reads from /dev/tty in interactive mode, fails in non-interactive
+# prompt "message" VARNAME — reads from /dev/tty in interactive mode, skips in non-interactive
 prompt() {
     local msg="$1" var="$2"
     if [ "$INTERACTIVE" = "true" ]; then
