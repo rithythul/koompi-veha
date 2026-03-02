@@ -184,6 +184,7 @@ install_rust() {
         RUST_PREEXISTING=false
     fi
     CARGO_BIN="$BUILD_HOME/.cargo/bin"
+    BUILD_GROUP=$(id -gn "$BUILD_USER" 2>/dev/null || echo "$BUILD_USER")
 }
 
 install_bun() {
@@ -234,7 +235,7 @@ info "Cloning repository..."
 git clone --depth 1 ${VEHA_VERSION:+--branch "$VEHA_VERSION"} "https://github.com/$REPO.git" "$BUILD_DIR/veha"
 
 # Build as BUILD_USER
-chown -R "$BUILD_USER:$BUILD_USER" "$BUILD_DIR"
+chown -R "$BUILD_USER:$BUILD_GROUP" "$BUILD_DIR"
 
 run_as_build_user() {
     if [ "$BUILD_USER" = "root" ]; then
