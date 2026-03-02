@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Megaphone, Plus, Trash2, Play, Pause, Check, X } from 'lucide-react'
 import {
-  useCampaign, useActivateCampaign, usePauseCampaign,
+  useCampaign, useActivateCampaign, usePauseCampaign, useDeleteCampaign,
   useCreatives, useCreateCreative, useDeleteCreative,
   useCampaignPerformance, useApproveCreative, useRejectCreative,
 } from '../api/campaigns'
@@ -42,8 +42,10 @@ export default function CampaignDetail() {
   const rejectCreative = useRejectCreative(id ?? '')
   const toast = useToast()
 
+  const deleteCampaign = useDeleteCampaign()
   const [showMediaPicker, setShowMediaPicker] = useState(false)
   const [deleteCreativeId, setDeleteCreativeId] = useState<string | null>(null)
+  const [showDeleteCampaign, setShowDeleteCampaign] = useState(false)
 
   if (isLoading || !campaign) return <PageSpinner />
 
@@ -110,6 +112,18 @@ export default function CampaignDetail() {
     }
   }
 
+  const handleDeleteCampaign = async () => {
+    try {
+      await deleteCampaign.mutateAsync(id!)
+      toast.success('Campaign deleted')
+      navigate('/campaigns')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setShowDeleteCampaign(false)
+    }
+  }
+
   return (
     <div className="animate-fade-in">
       <button
@@ -141,6 +155,9 @@ export default function CampaignDetail() {
               <Pause className="w-3.5 h-3.5" /> Pause
             </Button>
           )}
+          <Button variant="danger" size="sm" onClick={() => setShowDeleteCampaign(true)}>
+            <Trash2 className="w-3.5 h-3.5" /> Delete
+          </Button>
         </div>
       </div>
 
@@ -342,6 +359,16 @@ export default function CampaignDetail() {
         message="Remove this creative from the campaign?"
         confirmLabel="Remove"
         loading={deleteCreative.isPending}
+      />
+
+      <ConfirmDialog
+        open={showDeleteCampaign}
+        onClose={() => setShowDeleteCampaign(false)}
+        onConfirm={handleDeleteCampaign}
+        title="Delete Campaign"
+        message="This will permanently delete this campaign, its creatives, and associated bookings."
+        confirmLabel="Delete"
+        loading={deleteCampaign.isPending}
       />
     </div>
   )

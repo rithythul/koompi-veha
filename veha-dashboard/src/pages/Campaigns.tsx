@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Megaphone, Plus, Pencil, LayoutGrid, Table2 } from 'lucide-react'
-import { useCampaigns, useCreateCampaign, useUpdateCampaign } from '../api/campaigns'
+import { Megaphone, Plus, Pencil, Trash2, LayoutGrid, Table2 } from 'lucide-react'
+import { useCampaigns, useCreateCampaign, useUpdateCampaign, useDeleteCampaign } from '../api/campaigns'
 import { useAdvertisers } from '../api/advertisers'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
@@ -9,6 +9,7 @@ import { Modal } from '../components/ui/Modal'
 import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
 import { Textarea } from '../components/ui/Textarea'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { useToast } from '../components/ui/Toast'
@@ -34,8 +35,10 @@ export default function Campaigns() {
     start_date: '',
     end_date: '',
   })
+  const [deleteId, setDeleteId] = useState<string | null>(null)
   const createCampaign = useCreateCampaign()
   const updateCampaign = useUpdateCampaign(editItem?.id ?? '')
+  const deleteCampaign = useDeleteCampaign()
   const toast = useToast()
 
   if (isLoading) return <PageSpinner />
@@ -83,6 +86,18 @@ export default function Campaigns() {
       setEditItem(null)
     } catch (err: any) {
       toast.error(err.message)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteId) return
+    try {
+      await deleteCampaign.mutateAsync(deleteId)
+      toast.success('Campaign deleted')
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteId(null)
     }
   }
 
@@ -191,13 +206,22 @@ export default function Campaigns() {
                     {formatCurrency(c.budget)}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => { e.stopPropagation(); openEdit(c) }}
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); openEdit(c) }}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); setDeleteId(c.id) }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-status-error" />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -242,6 +266,16 @@ export default function Campaigns() {
           <Textarea label="Notes" value={formData.notes ?? ''} onChange={(e) => setFormData({ ...formData, notes: e.target.value || undefined })} />
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={handleDelete}
+        title="Delete Campaign"
+        message="This will permanently delete this campaign and its creatives. Associated bookings will also be removed."
+        confirmLabel="Delete"
+        loading={deleteCampaign.isPending}
+      />
     </div>
   )
 }
