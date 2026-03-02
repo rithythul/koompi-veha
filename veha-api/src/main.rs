@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use clap::Parser;
 use axum::Router;
 use sqlx::SqlitePool;
@@ -9,6 +11,7 @@ mod db;
 mod models;
 mod resolver;
 mod routes;
+mod screenshot_analysis;
 mod ws;
 
 #[derive(Clone)]
@@ -18,6 +21,8 @@ pub struct AppState {
     pub dashboards: ws::DashboardConnections,
     pub media_dir: String,
     pub api_key: String,
+    pub screenshots: ws::ScreenshotStore,
+    pub analysis: screenshot_analysis::AnalysisStore,
 }
 
 #[derive(Parser)]
@@ -49,9 +54,14 @@ async fn main() {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
 
-    // Create media directory
+    // Create media directory and screenshots subdirectory
     if let Err(e) = std::fs::create_dir_all(&args.media_dir) {
         tracing::error!("Failed to create media directory '{}': {e}", args.media_dir);
+        std::process::exit(1);
+    }
+    let screenshots_dir = std::path::Path::new(&args.media_dir).join("screenshots");
+    if let Err(e) = std::fs::create_dir_all(&screenshots_dir) {
+        tracing::error!("Failed to create screenshots directory: {e}");
         std::process::exit(1);
     }
 
@@ -92,12 +102,17 @@ async fn main() {
         _ => {} // Users exist, skip seeding
     }
 
+    // Recover screenshot history from disk
+    let screenshots = recover_screenshot_store(&screenshots_dir).await;
+
     let state = AppState {
         db: db.clone(),
         agents: ws::AgentConnections::default(),
         dashboards: ws::DashboardConnections::default(),
         media_dir: args.media_dir,
         api_key: args.api_key,
+        screenshots,
+        analysis: screenshot_analysis::AnalysisStore::default(),
     };
 
     // Configure CORS
@@ -192,4 +207,73 @@ async fn main() {
     // Close database pool
     db.close().await;
     tracing::info!("Server shut down cleanly");
+}
+
+/// Scan screenshots/ directories on startup to populate ScreenshotStore from disk.
+async fn recover_screenshot_store(screenshots_dir: &std::path::Path) -> ws::ScreenshotStore {
+    let mut map: HashMap<String, ws::BoardScreenshots> = HashMap::new();
+
+    let mut dir = match tokio::fs::read_dir(screenshots_dir).await {
+        Ok(d) => d,
+        Err(_) => return ws::ScreenshotStore::default(),
+    };
+
+    while let Ok(Some(entry)) = dir.next_entry().await {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let board_id = match path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name.to_string(),
+            None => continue,
+        };
+
+        let mut board_shots = ws::BoardScreenshots::default();
+        let mut board_dir = match tokio::fs::read_dir(&path).await {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+
+        while let Ok(Some(file_entry)) = board_dir.next_entry().await {
+            let fname = match file_entry.file_name().into_string() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if let Some(stem) = fname.strip_suffix(".jpg") {
+                if let Ok(ts_ms) = stem.parse::<u64>() {
+                    // Reconstruct timestamp from milliseconds
+                    let secs = (ts_ms / 1000) as i64;
+                    let nanos = ((ts_ms % 1000) * 1_000_000) as u32;
+                    let timestamp = chrono::DateTime::from_timestamp(secs, nanos)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default();
+                    board_shots.entries.push(ws::ScreenshotEntry {
+                        timestamp_ms: ts_ms,
+                        timestamp,
+                    });
+                }
+            }
+        }
+
+        // Sort by timestamp_ms ascending (oldest first)
+        board_shots.entries.sort_by_key(|e| e.timestamp_ms);
+
+        // Prune excess files
+        while board_shots.entries.len() > ws::MAX_SCREENSHOTS_PER_BOARD {
+            let old = board_shots.entries.remove(0);
+            let old_path = path.join(format!("{}.jpg", old.timestamp_ms));
+            let _ = tokio::fs::remove_file(&old_path).await;
+        }
+
+        if !board_shots.entries.is_empty() {
+            tracing::info!(
+                "Recovered {} screenshots for board {}",
+                board_shots.entries.len(),
+                board_id
+            );
+            map.insert(board_id, board_shots);
+        }
+    }
+
+    std::sync::Arc::new(tokio::sync::RwLock::new(map))
 }

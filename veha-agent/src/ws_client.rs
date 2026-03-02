@@ -1,3 +1,4 @@
+use base64::Engine;
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use veha_core::command::{PlayerCommand, PlayerStatus};
@@ -35,6 +36,11 @@ pub enum WsMessage {
         ended_at: String,
         duration_secs: u32,
         status: String,
+    },
+    Screenshot {
+        board_id: String,
+        timestamp: String,
+        data: String,
     },
 }
 
@@ -114,6 +120,14 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
     let api_base_url = config.api_base_url();
     let report_interval = Duration::from_secs(config.report_interval_secs);
     let mut status_ticker = time::interval(report_interval);
+
+    let screenshot_interval_secs = config.screenshot_interval_secs;
+    let screenshot_enabled = screenshot_interval_secs > 0;
+    let mut screenshot_ticker = time::interval(Duration::from_secs(
+        if screenshot_enabled { screenshot_interval_secs } else { 3600 },
+    ));
+    let screenshot_path = format!("/tmp/veha-screenshot-{}.jpg", config.board_id);
+    let screenshot_board_id = config.board_id.clone();
 
     // Play log tracking: detect when the player transitions between items.
     let mut prev_item: Option<String> = None; // source of previous item
@@ -233,9 +247,51 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
                             active_creative_id: None,
                             active_media_id: None,
                             uptime_secs: None,
+                            position_secs: None,
+                            duration_secs: None,
+                            volume: 1.0,
+                            is_muted: false,
+                            playback_speed: 1.0,
+                            is_fullscreen: false,
                         };
                         let msg = serde_json::to_string(&WsMessage::Status { status })?;
                         let _ = ws_tx.send(Message::Text(msg.into())).await;
+                    }
+                }
+            }
+
+            // Periodic screenshot capture
+            _ = screenshot_ticker.tick(), if screenshot_enabled => {
+                debug!("Taking periodic screenshot");
+                let cmd = PlayerCommand::TakeScreenshot(screenshot_path.clone());
+                match player_client::send_command(&socket_path, &cmd).await {
+                    Ok(_) => {
+                        // Give the player a moment to write the file
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        // Read the JPEG file and send as base64
+                        match tokio::fs::read(&screenshot_path).await {
+                            Ok(jpeg_data) => {
+                                let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_data);
+                                let msg = WsMessage::Screenshot {
+                                    board_id: screenshot_board_id.clone(),
+                                    timestamp: Utc::now().to_rfc3339(),
+                                    data: b64,
+                                };
+                                if let Ok(json) = serde_json::to_string(&msg) {
+                                    if let Err(e) = ws_tx.send(Message::Text(json.into())).await {
+                                        error!("Failed to send screenshot: {e}");
+                                        break;
+                                    }
+                                    debug!("Sent screenshot for {}", screenshot_board_id);
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Could not read screenshot file: {e}");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to request screenshot from player: {e}");
                     }
                 }
             }

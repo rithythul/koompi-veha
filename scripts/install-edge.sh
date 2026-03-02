@@ -5,6 +5,10 @@
 # One-liner:
 #   curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/install-edge.sh | sudo bash
 #
+# Options:
+#   --uninstall           Remove veha edge device completely
+#   VEHA_VERSION=v1.0.0   Pin to a specific git tag/branch
+#
 # Installs:  veha-agent + veha-player (with framebuffer support)
 # Creates:   /opt/veha/ (binaries, TOML configs)
 # Sets up:   systemd services (veha-player.service, veha-agent.service)
@@ -33,6 +37,43 @@ prompt() {
     read -rp "$msg" "$var" </dev/tty
 }
 
+# ── Uninstall ────────────────────────────────────────────────────────────────
+
+if [ "${1:-}" = "--uninstall" ]; then
+    [ "$(id -u)" -eq 0 ] || fail "Uninstall must be run as root (or with sudo)"
+
+    echo ""
+    echo -e "${BOLD}Veha Edge Device Uninstaller${NC}"
+    echo ""
+    echo "This will:"
+    echo "  - Stop and disable veha-player and veha-agent services"
+    echo "  - Remove systemd unit files"
+    echo "  - Remove $INSTALL_DIR (binaries, configs)"
+    echo "  - Remove /run/veha and /var/cache/veha"
+    echo ""
+    prompt "Are you sure? [y/N]: " CONFIRM_UNINSTALL
+    case "${CONFIRM_UNINSTALL:-N}" in
+        [Yy]*)
+            info "Stopping services..."
+            systemctl stop veha-player veha-agent 2>/dev/null || true
+            systemctl disable veha-player veha-agent 2>/dev/null || true
+            rm -f /etc/systemd/system/veha-player.service /etc/systemd/system/veha-agent.service
+            systemctl daemon-reload
+
+            info "Removing files..."
+            rm -rf "$INSTALL_DIR"
+            rm -rf /run/veha /var/cache/veha
+
+            echo ""
+            ok "Veha Edge Device uninstalled successfully."
+            ;;
+        *)
+            echo "Aborted."
+            ;;
+    esac
+    exit 0
+fi
+
 # ── Preflight ───────────────────────────────────────────────────────────────
 
 [ "$(id -u)" -eq 0 ] || fail "This script must be run as root (or with sudo)"
@@ -44,12 +85,75 @@ case "$ARCH" in
 esac
 
 echo ""
+# Verify this script was fetched over HTTPS (if piped from curl)
+if [ -n "${BASH_SOURCE[0]:-}" ] && [ "${BASH_SOURCE[0]}" = "/dev/stdin" ]; then
+    info "Running from pipe — ensure you fetched this script over HTTPS"
+fi
+
 echo -e "${BOLD}╔══════════════════════════════════════════╗${NC}"
 echo -e "${BOLD}║     Veha Billboard Edge Installer        ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${NC}"
 echo ""
 info "Architecture: $ARCH"
+[ -n "${VEHA_VERSION:-}" ] && info "Version: $VEHA_VERSION" || info "Version: latest (HEAD)"
 echo ""
+
+# ── Detect and remove existing installation ───────────────────────────────
+
+EXISTING_INSTALL=false
+
+# Check for running processes
+if pgrep -x veha-player &>/dev/null || pgrep -x veha-agent &>/dev/null; then
+    EXISTING_INSTALL=true
+    warn "Detected running veha processes"
+fi
+
+# Check for systemd services
+if systemctl list-unit-files veha-player.service &>/dev/null 2>&1 || \
+   systemctl list-unit-files veha-agent.service &>/dev/null 2>&1; then
+    if systemctl is-enabled veha-player &>/dev/null 2>&1 || \
+       systemctl is-enabled veha-agent &>/dev/null 2>&1; then
+        EXISTING_INSTALL=true
+        warn "Detected existing veha systemd services"
+    fi
+fi
+
+# Check for install directory
+if [ -d "$INSTALL_DIR" ]; then
+    EXISTING_INSTALL=true
+    warn "Detected existing install at $INSTALL_DIR"
+fi
+
+if [ "$EXISTING_INSTALL" = "true" ]; then
+    echo ""
+    info "Removing previous veha installation before upgrade..."
+
+    # Stop services
+    systemctl stop veha-player veha-agent 2>/dev/null || true
+
+    # Kill any remaining processes
+    pkill -x veha-player 2>/dev/null || true
+    pkill -x veha-agent 2>/dev/null || true
+    sleep 1
+    # Force kill if still running
+    pkill -9 -x veha-player 2>/dev/null || true
+    pkill -9 -x veha-agent 2>/dev/null || true
+
+    # Disable and remove services
+    systemctl disable veha-player veha-agent 2>/dev/null || true
+    rm -f /etc/systemd/system/veha-player.service /etc/systemd/system/veha-agent.service
+    systemctl daemon-reload
+
+    # Remove old binaries (keep configs if present — they'll be overwritten later)
+    rm -f "$INSTALL_DIR/veha-player" "$INSTALL_DIR/veha-agent"
+
+    # Clean up runtime files
+    rm -f /run/veha/player.sock
+    rm -rf /run/veha
+
+    ok "Previous installation removed"
+    echo ""
+fi
 
 # ── Collect configuration ──────────────────────────────────────────────────
 
@@ -65,6 +169,11 @@ while true; do
     fi
     echo -e "${RED}  Server URL is required${NC}"
 done
+
+# Warn about non-TLS URLs
+case "$SERVER_URL" in
+    http://*) warn "Using unencrypted HTTP. Consider HTTPS for production." ;;
+esac
 
 # Derive WebSocket URL from HTTP URL
 WS_URL=$(echo "$SERVER_URL" | sed 's|^http://|ws://|; s|^https://|wss://|')
@@ -101,6 +210,10 @@ case "$RES_CHOICE" in
     4)
         prompt "  Width: " WIDTH
         prompt "  Height: " HEIGHT
+        [[ "$WIDTH" =~ ^[0-9]+$ ]] || fail "Width must be a positive number"
+        [[ "$HEIGHT" =~ ^[0-9]+$ ]] || fail "Height must be a positive number"
+        [ "$WIDTH" -gt 0 ] || fail "Width must be greater than 0"
+        [ "$HEIGHT" -gt 0 ] || fail "Height must be greater than 0"
         ;;
     *) WIDTH=1920; HEIGHT=1080 ;;
 esac
@@ -151,6 +264,8 @@ if [ "$OUTPUT_BACKEND" = "window" ]; then
     fi
 
     DESKTOP_UID=$(id -u "$DESKTOP_USER" 2>/dev/null || echo 1000)
+    DESKTOP_HOME=$(getent passwd "$DESKTOP_USER" | cut -d: -f6)
+    DESKTOP_HOME=${DESKTOP_HOME:-/home/$DESKTOP_USER}
     XDG_DIR="/run/user/$DESKTOP_UID"
 
     # Detect display server
@@ -159,16 +274,20 @@ if [ "$OUTPUT_BACKEND" = "window" ]; then
 Environment=XDG_RUNTIME_DIR=${XDG_DIR}"
     elif [ -n "${DISPLAY:-}" ]; then
         DESKTOP_ENV_LINES="Environment=DISPLAY=${DISPLAY}
-Environment=XAUTHORITY=/home/${DESKTOP_USER}/.Xauthority"
+Environment=XAUTHORITY=${DESKTOP_HOME}/.Xauthority"
     else
         # Try to detect from the user's session
         if [ -S "${XDG_DIR}/wayland-0" ] || [ -S "${XDG_DIR}/wayland-1" ]; then
-            WL_SOCK=$(ls "${XDG_DIR}"/wayland-* 2>/dev/null | head -1 | xargs basename)
+            WL_SOCK=""
+            for f in "${XDG_DIR}"/wayland-*; do
+                WL_SOCK=$(basename "$f")
+                break
+            done
             DESKTOP_ENV_LINES="Environment=WAYLAND_DISPLAY=${WL_SOCK}
 Environment=XDG_RUNTIME_DIR=${XDG_DIR}"
         else
             DESKTOP_ENV_LINES="Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/${DESKTOP_USER}/.Xauthority"
+Environment=XAUTHORITY=${DESKTOP_HOME}/.Xauthority"
         fi
     fi
 
@@ -207,7 +326,7 @@ install_deps() {
             libswscale-dev libswresample-dev
     elif command -v pacman &>/dev/null; then
         info "Installing dependencies (pacman)..."
-        pacman -Sy --noconfirm --needed curl git base-devel openssl ffmpeg clang
+        pacman -S --noconfirm --needed curl git base-devel openssl ffmpeg clang
     elif command -v dnf &>/dev/null; then
         info "Installing dependencies (dnf)..."
         dnf install -y curl git gcc make openssl-devel clang clang-devel \
@@ -218,29 +337,47 @@ install_deps() {
 }
 
 install_rust() {
-    if command -v cargo &>/dev/null; then
+    # Determine build user — prefer SUDO_USER to avoid installing as root
+    BUILD_USER="${SUDO_USER:-root}"
+    BUILD_HOME=$(getent passwd "$BUILD_USER" | cut -d: -f6)
+    BUILD_HOME=${BUILD_HOME:-$HOME}
+
+    if su - "$BUILD_USER" -c 'command -v cargo' &>/dev/null; then
+        ok "Rust already installed for $BUILD_USER ($(su - "$BUILD_USER" -c 'rustc --version'))"
+        RUST_PREEXISTING=true
+    elif command -v cargo &>/dev/null; then
         ok "Rust already installed ($(rustc --version))"
+        BUILD_USER="root"
+        BUILD_HOME="$HOME"
+        RUST_PREEXISTING=true
     else
-        info "Installing Rust..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-        export PATH="$HOME/.cargo/bin:$PATH"
+        info "Installing Rust for $BUILD_USER..."
+        if [ "$BUILD_USER" = "root" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+        else
+            su - "$BUILD_USER" -c 'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable'
+        fi
+        RUST_PREEXISTING=false
     fi
+    CARGO_BIN="$BUILD_HOME/.cargo/bin"
 }
 
 install_deps
 install_rust
-export PATH="$HOME/.cargo/bin:$PATH"
 
-# Ensure bindgen can find libclang
+# Detect libclang path
+LIBCLANG_ENV=""
 if [ -z "${LIBCLANG_PATH:-}" ]; then
     for dir in /usr/lib /usr/lib64 /usr/lib/llvm-*/lib; do
         if ls "$dir"/libclang.so* &>/dev/null 2>&1; then
-            export LIBCLANG_PATH="$dir"
+            LIBCLANG_ENV="LIBCLANG_PATH=$dir"
+            info "LIBCLANG_PATH=$dir"
             break
         fi
     done
+else
+    LIBCLANG_ENV="LIBCLANG_PATH=$LIBCLANG_PATH"
 fi
-[ -n "${LIBCLANG_PATH:-}" ] && info "LIBCLANG_PATH=$LIBCLANG_PATH"
 
 # Verify FFmpeg
 if ! pkg-config --exists libavcodec 2>/dev/null; then
@@ -254,19 +391,29 @@ BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
 info "Cloning repository..."
-git clone --depth 1 "https://github.com/$REPO.git" "$BUILD_DIR/veha"
-cd "$BUILD_DIR/veha"
+git clone --depth 1 ${VEHA_VERSION:+--branch "$VEHA_VERSION"} "https://github.com/$REPO.git" "$BUILD_DIR/veha"
+
+# Build as BUILD_USER
+chown -R "$BUILD_USER:$BUILD_USER" "$BUILD_DIR"
 
 FEATURES_FLAG=""
 if [ "$OUTPUT_BACKEND" = "framebuffer" ]; then
     FEATURES_FLAG="--features framebuffer"
 fi
 
+run_as_build_user() {
+    if [ "$BUILD_USER" = "root" ]; then
+        env PATH="$CARGO_BIN:$PATH" ${LIBCLANG_ENV:+$LIBCLANG_ENV} "$@"
+    else
+        su - "$BUILD_USER" -c "cd '$BUILD_DIR/veha' && export PATH='$CARGO_BIN:\$PATH' ${LIBCLANG_ENV:+&& export $LIBCLANG_ENV} && $*"
+    fi
+}
+
 info "Building veha-player (this may take a few minutes)..."
-cargo build --release -p veha-player $FEATURES_FLAG
+run_as_build_user cargo build --release -p veha-player $FEATURES_FLAG
 
 info "Building veha-agent..."
-cargo build --release -p veha-agent
+run_as_build_user cargo build --release -p veha-agent
 
 # ── Install binaries ───────────────────────────────────────────────────────
 
@@ -283,12 +430,26 @@ ok "Binaries installed"
 
 info "Writing configuration files..."
 
+# Back up existing configs if re-installing
+for cfg in veha-player.toml veha-agent.toml; do
+    if [ -f "$INSTALL_DIR/$cfg" ]; then
+        cp "$INSTALL_DIR/$cfg" "$INSTALL_DIR/$cfg.bak"
+        warn "Backed up existing $cfg to $cfg.bak"
+    fi
+done
+
+# Create runtime and cache directories
+mkdir -p /run/veha
+mkdir -p /var/cache/veha
+chown "$DESKTOP_USER:$DESKTOP_USER" /run/veha /var/cache/veha
+
 # Player config
 cat > "$INSTALL_DIR/veha-player.toml" <<PLAYEREOF
 output_backend = "$OUTPUT_BACKEND"
 width = $WIDTH
 height = $HEIGHT
-socket_path = "/tmp/veha-player.sock"
+fullscreen = true
+socket_path = "/run/veha/player.sock"
 title = "veha-player"
 PLAYEREOF
 
@@ -298,10 +459,12 @@ board_id = "$BOARD_ID"
 board_name = "$BOARD_NAME"
 api_url = "$WS_URL"
 api_key = "$API_KEY"
-player_socket = "/tmp/veha-player.sock"
+player_socket = "/run/veha/player.sock"
 report_interval_secs = 10
-cache_dir = "/tmp/veha-cache"
+cache_dir = "/var/cache/veha"
 AGENTEOF
+
+chmod 600 "$INSTALL_DIR/veha-agent.toml"
 
 ok "Config files written"
 
@@ -318,11 +481,13 @@ After=$SERVICE_AFTER
 Type=simple
 ExecStart=$INSTALL_DIR/veha-player -c $INSTALL_DIR/veha-player.toml
 WorkingDirectory=$INSTALL_DIR
+RuntimeDirectory=veha
+RuntimeDirectoryMode=0750
 Restart=always
 RestartSec=5
 User=$DESKTOP_USER
-$DESKTOP_ENV_LINES
-ExecStopPost=/bin/rm -f /tmp/veha-player.sock
+${DESKTOP_ENV_LINES:+$DESKTOP_ENV_LINES}
+ExecStopPost=/bin/rm -f /run/veha/player.sock
 
 [Install]
 WantedBy=$SERVICE_TARGET
@@ -332,13 +497,14 @@ cat > /etc/systemd/system/veha-agent.service <<SVCEOF
 [Unit]
 Description=Veha Billboard Agent
 After=network-online.target veha-player.service
-Wants=network-online.target
-Requires=veha-player.service
+Wants=network-online.target veha-player.service
 
 [Service]
 Type=simple
 ExecStart=$INSTALL_DIR/veha-agent -c $INSTALL_DIR/veha-agent.toml
 WorkingDirectory=$INSTALL_DIR
+CacheDirectory=veha
+CacheDirectoryMode=0750
 Restart=always
 RestartSec=5
 User=$DESKTOP_USER
@@ -390,3 +556,24 @@ echo -e "    sudo nano $INSTALL_DIR/veha-agent.toml"
 echo -e "    sudo nano $INSTALL_DIR/veha-player.toml"
 echo -e "    sudo systemctl restart veha-player veha-agent"
 echo ""
+echo -e "  Uninstall:"
+echo -e "    curl -sSfL https://raw.githubusercontent.com/$REPO/main/scripts/install-edge.sh | sudo bash -s -- --uninstall"
+echo ""
+
+# Offer to clean up Rust toolchain if we installed it
+if [ "$RUST_PREEXISTING" = "false" ]; then
+    echo -e "${YELLOW}The Rust toolchain (~500MB) was installed for the build.${NC}"
+    prompt "Remove Rust toolchain? (not needed at runtime) [Y/n]: " CLEANUP_RUST
+    CLEANUP_RUST=${CLEANUP_RUST:-Y}
+    case "$CLEANUP_RUST" in
+        [Yy]*)
+            if [ "$BUILD_USER" = "root" ]; then
+                rm -rf "$BUILD_HOME/.cargo" "$BUILD_HOME/.rustup"
+            else
+                su - "$BUILD_USER" -c 'rm -rf "$HOME/.cargo" "$HOME/.rustup"'
+            fi
+            ok "Rust toolchain removed"
+            ;;
+        *) info "Rust toolchain kept at $BUILD_HOME/.cargo" ;;
+    esac
+fi

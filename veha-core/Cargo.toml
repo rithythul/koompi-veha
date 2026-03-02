@@ -5,6 +5,8 @@ edition.workspace = true
 
 [dependencies]
 ffmpeg-next = "8"
+rodio = "0.20"
+ringbuf = "0.4"
 thiserror.workspace = true
 tracing.workspace = true
 serde.workspace = true

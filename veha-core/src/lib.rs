@@ -1,3 +1,4 @@
+pub mod audio;
 pub mod command;
 pub mod decoder;
 pub mod error;
@@ -12,7 +13,7 @@ pub use error::Error;
 pub use frame::VideoFrame;
 pub use player::{Player, PlayerState};
 pub use playlist::{MediaItem, Playlist};
-pub use sink::OutputSink;
+pub use sink::{OutputSink, SinkEvent, SinkKey};
 
 pub type Result<T> = std::result::Result<T, Error>;
 

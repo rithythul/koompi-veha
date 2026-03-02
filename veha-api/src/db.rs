@@ -1757,6 +1757,42 @@ pub async fn acknowledge_alert(pool: &SqlitePool, id: &str) -> Result<bool, sqlx
     Ok(result.rows_affected() > 0)
 }
 
+/// Create a screenshot anomaly alert if one doesn't already exist (unacknowledged) for this board+type.
+pub async fn create_screenshot_alert(
+    pool: &SqlitePool,
+    board_id: &str,
+    alert_type: &str,
+    message: &str,
+) -> Result<bool, sqlx::Error> {
+    // Check for existing unacknowledged alert of same type + board
+    let existing: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM board_alerts \
+         WHERE board_id = ? AND alert_type = ? AND acknowledged = 0",
+    )
+    .bind(board_id)
+    .bind(alert_type)
+    .fetch_one(pool)
+    .await?;
+
+    if existing.0 > 0 {
+        return Ok(false);
+    }
+
+    let alert_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO board_alerts (id, board_id, alert_type, severity, message) \
+         VALUES (?, ?, ?, 'warning', ?)",
+    )
+    .bind(&alert_id)
+    .bind(board_id)
+    .bind(alert_type)
+    .bind(message)
+    .execute(pool)
+    .await?;
+
+    Ok(true)
+}
+
 pub async fn create_offline_alerts(pool: &SqlitePool) -> Result<u64, sqlx::Error> {
     // Find boards that are 'online' but last_seen > 5 minutes ago, mark offline + create alert
     let stale_boards: Vec<(String, String)> = sqlx::query_as(

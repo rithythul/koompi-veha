@@ -335,6 +335,7 @@ export type PlayerCommand =
   | { type: 'Previous' }
   | { type: 'LoadPlaylist'; data: string }
   | { type: 'GetStatus' }
+  | { type: 'TakeScreenshot'; data: string }
 
 export interface PlayerStatus {
   state: string
@@ -418,6 +419,24 @@ export interface ApiKeyCreated {
 
 export interface CreateApiKey {
   name: string
+}
+
+// === Screenshots ===
+export interface ScreenshotMeta {
+  timestamp: string
+  timestamp_ms?: number
+  total_screenshots?: number
+}
+
+export interface ScreenshotEntry {
+  timestamp_ms: number
+  timestamp: string
+  url: string
+}
+
+export interface ScreenshotListResponse {
+  screenshots: ScreenshotEntry[]
+  total: number
 }
 
 // === Alerts ===

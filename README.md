@@ -52,6 +52,10 @@ curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/
 
 Installs the API server + dashboard to `/opt/veha`, creates a systemd service, and prints the admin credentials.
 
+Pin a specific version: `VEHA_VERSION=v1.0.0 curl -sSfL ... | sudo bash`
+
+Uninstall: `curl -sSfL .../install-server.sh | sudo bash -s -- --uninstall`
+
 ### Billboard Edge Device (one-liner)
 
 ```bash
@@ -59,6 +63,16 @@ curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/
 ```
 
 Installs the agent + player on billboard hardware. Prompts for server URL, board ID, display resolution, and output backend. Sets up systemd services that auto-start on boot.
+
+Uninstall: `curl -sSfL .../install-edge.sh | sudo bash -s -- --uninstall`
+
+### Security-conscious install (download then inspect)
+
+```bash
+curl -sSfL https://raw.githubusercontent.com/rithythul/koompi-veha/main/scripts/install-server.sh -o install-server.sh
+less install-server.sh          # review the script
+sudo bash install-server.sh     # run after review
+```
 
 ### Build Release Tarballs
 
@@ -146,7 +160,8 @@ Create `veha-player.toml`:
 output_backend = "framebuffer"  # "window" for testing, "framebuffer" for LED boards
 width = 1920
 height = 1080
-socket_path = "/tmp/veha-player.sock"
+fullscreen = true               # window backend opens fullscreen by default
+socket_path = "/run/veha/player.sock"
 default_playlist = "default-ads.json"  # optional
 ```
 
@@ -157,9 +172,9 @@ board_id = "board-lobby-01"
 board_name = "Lobby Screen"
 api_url = "ws://your-server:3000/ws/agent"
 api_key = ""
-player_socket = "/tmp/veha-player.sock"
+player_socket = "/run/veha/player.sock"
 report_interval_secs = 10
-cache_dir = "/tmp/veha-cache"
+cache_dir = "/var/cache/veha"
 ```
 
 Start both services:
@@ -219,12 +234,39 @@ Commands that can be sent to boards via the API or CLI:
 - `Stop` — stop playback
 - `Next` — skip to next playlist item
 - `Previous` — go to previous playlist item
+- `Seek(secs)` — seek to absolute position in seconds
+- `SeekRelative(delta)` — seek relative to current position (+/- seconds)
+- `SetVolume(0.0-1.0)` — set audio volume
+- `Mute` — toggle mute
+- `SetSpeed(0.25-4.0)` — set playback speed
+- `ToggleFullscreen` — toggle fullscreen mode
 - `GetStatus` — query current player state
 - `LoadPlaylist(json)` — load a new playlist
+- `TakeScreenshot(path)` — capture current frame to file
+
+### Keyboard Controls
+
+When using the window backend, the player supports YouTube-style keyboard shortcuts:
+
+| Key | Action |
+|-----|--------|
+| Space / K | Play/Pause |
+| Left Arrow | Seek back 5s |
+| Right Arrow | Seek forward 5s |
+| Up Arrow | Volume up 5% |
+| Down Arrow | Volume down 5% |
+| M | Toggle mute |
+| F | Toggle fullscreen |
+| N | Next item |
+| P | Previous item |
+| . (period) | Speed up (+0.25x) |
+| , (comma) | Speed down (-0.25x) |
+| 0-9 | Seek to 0%-90% of duration |
+| Escape | Quit / exit fullscreen |
 
 ## Output Backends
 
-- **window** (default) — desktop window via minifb, for testing and preview
+- **window** (default) — desktop window via minifb, fullscreen by default (borderless + topmost). Supports keyboard controls and runtime fullscreen toggle.
 - **framebuffer** — direct `/dev/fb0` writes via mmap, for LED boards connected via HDMI. Supports 16bpp (RGB565), 24bpp (BGR24), and 32bpp (BGRA32). Build with: `cargo build -p veha-player --features framebuffer`
 - **null** — discards frames, for testing and benchmarking
 

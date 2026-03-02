@@ -3,7 +3,7 @@ import { apiClient } from './client'
 import { toQueryString } from '../lib/utils'
 import type {
   Board, CreateBoard, UpdateBoard, BoardFilter,
-  PaginatedResponse, PlayerCommand, ResolvedPlaylist,
+  PaginatedResponse, PlayerCommand, ResolvedPlaylist, ScreenshotMeta, ScreenshotListResponse,
 } from '../types/api'
 
 export function useBoards(params?: BoardFilter) {
@@ -75,5 +75,24 @@ export function useBoardResolvedSchedule(id: string) {
     queryKey: ['boards', id, 'resolved-schedule'],
     queryFn: () => apiClient<ResolvedPlaylist>(`/api/boards/${id}/resolved-schedule`),
     enabled: !!id,
+  })
+}
+
+export function useBoardScreenshotMeta(id: string) {
+  return useQuery({
+    queryKey: ['boards', id, 'screenshot-meta'],
+    queryFn: () => apiClient<ScreenshotMeta>(`/api/boards/${id}/screenshot/meta`),
+    enabled: !!id,
+    refetchInterval: 30_000,
+    retry: false,
+  })
+}
+
+export function useBoardScreenshots(id: string) {
+  return useQuery({
+    queryKey: ['boards', id, 'screenshots'],
+    queryFn: () => apiClient<ScreenshotListResponse>(`/api/boards/${id}/screenshots`),
+    enabled: !!id,
+    staleTime: 10_000,
   })
 }

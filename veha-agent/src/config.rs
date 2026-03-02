@@ -27,19 +27,26 @@ pub struct AgentConfig {
     /// Media cache directory
     #[serde(default = "default_cache_dir")]
     pub cache_dir: String,
+
+    /// Screenshot capture interval in seconds (0 to disable)
+    #[serde(default = "default_screenshot_interval")]
+    pub screenshot_interval_secs: u64,
 }
 
 fn default_name() -> String {
     "unnamed-board".into()
 }
 fn default_socket() -> String {
-    "/tmp/veha-player.sock".into()
+    "/run/veha/player.sock".into()
 }
 fn default_interval() -> u64 {
     10
 }
 fn default_cache_dir() -> String {
-    "/tmp/veha-cache".into()
+    "/var/cache/veha".into()
+}
+fn default_screenshot_interval() -> u64 {
+    60
 }
 
 impl AgentConfig {

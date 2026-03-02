@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::ws::{Message, WebSocket};
+use base64::Engine;
 use futures::{SinkExt, StreamExt};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, RwLock};
 
@@ -13,6 +15,25 @@ pub type AgentConnections = Arc<RwLock<HashMap<String, mpsc::Sender<String>>>>;
 
 /// Set of sender channels for connected dashboard WebSocket clients.
 pub type DashboardConnections = Arc<RwLock<Vec<mpsc::Sender<String>>>>;
+
+/// Maximum number of screenshot history entries to keep per board.
+pub const MAX_SCREENSHOTS_PER_BOARD: usize = 60;
+
+/// Per-screenshot metadata entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScreenshotEntry {
+    pub timestamp_ms: u64,
+    pub timestamp: String,
+}
+
+/// Ordered screenshot history for a single board (newest last).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BoardScreenshots {
+    pub entries: Vec<ScreenshotEntry>,
+}
+
+/// Map of board_id -> screenshot history.
+pub type ScreenshotStore = Arc<RwLock<HashMap<String, BoardScreenshots>>>;
 
 /// Messages exchanged over the WebSocket.
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,6 +60,11 @@ pub enum WsMessage {
         duration_secs: u32,
         status: String,
     },
+    Screenshot {
+        board_id: String,
+        timestamp: String,
+        data: String,
+    },
 }
 
 /// Handle an incoming agent WebSocket connection.
@@ -48,6 +74,9 @@ pub async fn handle_agent_socket(
     dashboards: DashboardConnections,
     db: sqlx::SqlitePool,
     api_key: String,
+    screenshots: ScreenshotStore,
+    media_dir: String,
+    analysis_store: crate::screenshot_analysis::AnalysisStore,
 ) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -180,6 +209,154 @@ pub async fn handle_agent_socket(
                         &status,
                     ).await {
                         tracing::error!("Failed to insert play log from {}: {e}", bid);
+                    }
+                }
+                Ok(WsMessage::Screenshot { board_id: _, timestamp: _, data }) => {
+                    tracing::debug!("Screenshot from {}", bid);
+                    match base64::engine::general_purpose::STANDARD.decode(&data) {
+                        Ok(jpeg_bytes) => {
+                            let now = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default();
+                            let timestamp_ms = now.as_millis() as u64;
+                            let timestamp = Utc::now().to_rfc3339();
+
+                            // Create per-board directory
+                            let board_dir = std::path::Path::new(&media_dir)
+                                .join("screenshots")
+                                .join(&bid);
+                            if let Err(e) = tokio::fs::create_dir_all(&board_dir).await {
+                                tracing::error!("Failed to create screenshot dir for {bid}: {e}");
+                                continue;
+                            }
+
+                            // Save timestamped file
+                            let ts_path = board_dir.join(format!("{timestamp_ms}.jpg"));
+                            if let Err(e) = tokio::fs::write(&ts_path, &jpeg_bytes).await {
+                                tracing::error!("Failed to save screenshot for {bid}: {e}");
+                                continue;
+                            }
+
+                            // Backward-compat: also write screenshots/{bid}.jpg
+                            let compat_path = std::path::Path::new(&media_dir)
+                                .join("screenshots")
+                                .join(format!("{bid}.jpg"));
+                            let _ = tokio::fs::write(&compat_path, &jpeg_bytes).await;
+
+                            // Update screenshot store
+                            let entry = ScreenshotEntry {
+                                timestamp_ms,
+                                timestamp: timestamp.clone(),
+                            };
+                            let mut store = screenshots.write().await;
+                            let board_shots = store.entry(bid.clone()).or_default();
+                            board_shots.entries.push(entry);
+
+                            // Prune oldest entries beyond max
+                            while board_shots.entries.len() > MAX_SCREENSHOTS_PER_BOARD {
+                                let old = board_shots.entries.remove(0);
+                                let old_path = board_dir.join(format!("{}.jpg", old.timestamp_ms));
+                                let _ = tokio::fs::remove_file(&old_path).await;
+                            }
+                            drop(store);
+
+                            // Broadcast to dashboard clients
+                            let update = serde_json::json!({
+                                "type": "ScreenshotUpdated",
+                                "board_id": bid,
+                                "timestamp": timestamp,
+                                "timestamp_ms": timestamp_ms,
+                            });
+                            if let Ok(msg) = serde_json::to_string(&update) {
+                                let readers = dashboards.read().await;
+                                for tx in readers.iter() {
+                                    let _ = tx.try_send(msg.clone());
+                                }
+                            }
+                            tracing::debug!("Screenshot saved for {bid} ({timestamp_ms})");
+
+                            // Spawn analysis in background
+                            let analysis_store_c = analysis_store.clone();
+                            let dashboards_c = dashboards.clone();
+                            let db_c = db_clone.clone();
+                            let bid_c = bid.clone();
+                            let jpeg_for_analysis = jpeg_bytes.clone();
+                            tokio::spawn(async move {
+                                // Get previous hash
+                                let prev_hash = {
+                                    let store = analysis_store_c.read().await;
+                                    store.get(&bid_c).and_then(|s| s.prev_hash)
+                                };
+
+                                let thresholds = crate::screenshot_analysis::AnomalyThresholds::default();
+                                let result = tokio::task::spawn_blocking(move || {
+                                    crate::screenshot_analysis::analyze_screenshot(
+                                        &jpeg_for_analysis,
+                                        prev_hash,
+                                        &thresholds,
+                                    )
+                                })
+                                .await;
+
+                                if let Ok(Some(analysis)) = result {
+                                    // Update analysis store with new hash
+                                    {
+                                        let mut store = analysis_store_c.write().await;
+                                        let state = store.entry(bid_c.clone()).or_default();
+                                        state.prev_hash = Some(analysis.pixel_hash);
+                                    }
+
+                                    // Create alerts for anomalies
+                                    let mut alert_created = false;
+
+                                    if analysis.is_black {
+                                        if let Ok(true) = crate::db::create_screenshot_alert(
+                                            &db_c, &bid_c, "screen_black",
+                                            &format!("Board {} appears to show a black screen", bid_c),
+                                        ).await {
+                                            alert_created = true;
+                                            tracing::warn!("Black screen detected on {bid_c}");
+                                        }
+                                    } else if analysis.is_solid {
+                                        // Skip solid alert if already black (no double-alert)
+                                        if let Ok(true) = crate::db::create_screenshot_alert(
+                                            &db_c, &bid_c, "screen_solid",
+                                            &format!("Board {} appears to show a solid color", bid_c),
+                                        ).await {
+                                            alert_created = true;
+                                            tracing::warn!("Solid color detected on {bid_c}");
+                                        }
+                                    }
+
+                                    if analysis.is_frozen {
+                                        if let Ok(true) = crate::db::create_screenshot_alert(
+                                            &db_c, &bid_c, "screen_frozen",
+                                            &format!("Board {} appears to have a frozen screen", bid_c),
+                                        ).await {
+                                            alert_created = true;
+                                            tracing::warn!("Frozen screen detected on {bid_c}");
+                                        }
+                                    }
+
+                                    if alert_created {
+                                        // Broadcast AlertCreated to dashboards
+                                        let msg = serde_json::json!({
+                                            "type": "AlertCreated",
+                                            "board_id": bid_c,
+                                        });
+                                        if let Ok(msg_str) = serde_json::to_string(&msg) {
+                                            let readers = dashboards_c.read().await;
+                                            for tx in readers.iter() {
+                                                let _ = tx.try_send(msg_str.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to decode screenshot base64 from {bid}: {e}");
+                        }
                     }
                 }
                 _ => {

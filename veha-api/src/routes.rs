@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use axum::{
     Extension, Json, Router,
-    extract::{Multipart, Path, Query, State, WebSocketUpgrade},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State, WebSocketUpgrade},
     http::{HeaderMap, StatusCode},
     middleware,
     response::IntoResponse,
@@ -11,6 +11,8 @@ use axum::{
 use tokio::io::AsyncWriteExt;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
+
+use serde::Deserialize;
 
 use crate::{AppState, auth, db, models::*, ws};
 
@@ -32,6 +34,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/boards", get(list_boards).post(create_board))
         .route("/api/boards/{id}", get(get_board).put(update_board_handler).delete(delete_board_handler))
         .route("/api/boards/{id}/command", post(send_board_command))
+        .route("/api/boards/{id}/screenshot", get(get_board_screenshot))
+        .route("/api/boards/{id}/screenshot/meta", get(get_board_screenshot_meta))
+        .route("/api/boards/{id}/screenshots", get(list_board_screenshots))
+        .route("/api/boards/{id}/screenshots/{timestamp_ms}", get(get_board_screenshot_by_ts))
         // Groups
         .route("/api/groups", get(list_groups).post(create_group))
         .route("/api/groups/{id}", put(update_group_handler).delete(delete_group))
@@ -123,6 +129,8 @@ pub fn create_router(state: AppState) -> Router {
             state.clone(),
             auth::require_auth,
         ))
+        // Allow large media uploads (up to 2GB)
+        .layer(DefaultBodyLimit::max(MAX_UPLOAD_SIZE as usize))
         // Public routes (no auth required) — media download for player/agent access
         .route("/api/media/{id}/download", get(download_media))
         .with_state(state)
@@ -320,6 +328,116 @@ async fn send_board_command(
         StatusCode::OK.into_response()
     } else {
         (StatusCode::NOT_FOUND, "Board not connected").into_response()
+    }
+}
+
+// ── Screenshots ────────────────────────────────────────────────────────
+
+async fn get_board_screenshot(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let screenshot_path = PathBuf::from(&state.media_dir)
+        .join("screenshots")
+        .join(format!("{id}.jpg"));
+
+    match tokio::fs::read(&screenshot_path).await {
+        Ok(data) => {
+            let headers = [
+                (axum::http::header::CONTENT_TYPE, "image/jpeg"),
+                (axum::http::header::CACHE_CONTROL, "no-cache"),
+            ];
+            (headers, data).into_response()
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn get_board_screenshot_meta(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let store = state.screenshots.read().await;
+    match store.get(&id) {
+        Some(board_shots) => {
+            let latest = board_shots.entries.last();
+            match latest {
+                Some(entry) => Json(serde_json::json!({
+                    "timestamp": entry.timestamp,
+                    "timestamp_ms": entry.timestamp_ms,
+                    "total_screenshots": board_shots.entries.len(),
+                }))
+                .into_response(),
+                None => StatusCode::NOT_FOUND.into_response(),
+            }
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+struct ScreenshotListParams {
+    limit: Option<u32>,
+}
+
+async fn list_board_screenshots(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<ScreenshotListParams>,
+) -> impl IntoResponse {
+    let store = state.screenshots.read().await;
+    match store.get(&id) {
+        Some(board_shots) => {
+            let limit = params.limit.unwrap_or(60) as usize;
+            // Return newest first
+            let entries: Vec<serde_json::Value> = board_shots
+                .entries
+                .iter()
+                .rev()
+                .take(limit)
+                .map(|e| {
+                    serde_json::json!({
+                        "timestamp_ms": e.timestamp_ms,
+                        "timestamp": e.timestamp,
+                        "url": format!("/api/boards/{}/screenshots/{}", id, e.timestamp_ms),
+                    })
+                })
+                .collect();
+            Json(serde_json::json!({
+                "screenshots": entries,
+                "total": board_shots.entries.len(),
+            }))
+            .into_response()
+        }
+        None => Json(serde_json::json!({
+            "screenshots": [],
+            "total": 0,
+        }))
+        .into_response(),
+    }
+}
+
+async fn get_board_screenshot_by_ts(
+    State(state): State<AppState>,
+    Path((id, timestamp_ms)): Path<(String, u64)>,
+) -> impl IntoResponse {
+    let screenshot_path = PathBuf::from(&state.media_dir)
+        .join("screenshots")
+        .join(&id)
+        .join(format!("{timestamp_ms}.jpg"));
+
+    match tokio::fs::read(&screenshot_path).await {
+        Ok(data) => {
+            let headers = [
+                (axum::http::header::CONTENT_TYPE, "image/jpeg"),
+                (
+                    axum::http::header::CACHE_CONTROL,
+                    "public, max-age=31536000, immutable",
+                ),
+            ];
+            (headers, data).into_response()
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
@@ -877,7 +995,16 @@ async fn ws_agent_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| {
-        ws::handle_agent_socket(socket, state.agents, state.dashboards, state.db, state.api_key)
+        ws::handle_agent_socket(
+            socket,
+            state.agents,
+            state.dashboards,
+            state.db,
+            state.api_key,
+            state.screenshots,
+            state.media_dir.clone(),
+            state.analysis,
+        )
     })
 }
 

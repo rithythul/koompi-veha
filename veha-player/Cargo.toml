@@ -18,3 +18,5 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 thiserror.workspace = true
 clap = { version = "4", features = ["derive"] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+rodio = "0.20"

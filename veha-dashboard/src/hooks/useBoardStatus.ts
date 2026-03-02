@@ -36,6 +36,17 @@ export function useBoardStatus() {
           if (data.type === 'BoardStatusChange') {
             // Invalidate all board queries so Dashboard and Boards pages refresh
             queryClient.invalidateQueries({ queryKey: ['boards'] })
+          } else if (data.type === 'ScreenshotUpdated') {
+            // Invalidate screenshot meta and screenshots list for this board
+            queryClient.invalidateQueries({
+              queryKey: ['boards', data.board_id, 'screenshot-meta'],
+            })
+            queryClient.invalidateQueries({
+              queryKey: ['boards', data.board_id, 'screenshots'],
+            })
+          } else if (data.type === 'AlertCreated') {
+            // Invalidate alerts queries so Alerts page and count badge refresh
+            queryClient.invalidateQueries({ queryKey: ['alerts'] })
           }
         } catch {
           // Ignore malformed messages

@@ -24,6 +24,10 @@ pub struct PlayerConfig {
     /// Window title (for window backend)
     #[serde(default = "default_title")]
     pub title: String,
+
+    /// Start in fullscreen mode (default: true)
+    #[serde(default = "default_fullscreen")]
+    pub fullscreen: bool,
 }
 
 fn default_backend() -> String {
@@ -36,10 +40,13 @@ fn default_height() -> u32 {
     1080
 }
 fn default_socket_path() -> String {
-    "/tmp/veha-player.sock".into()
+    "/run/veha/player.sock".into()
 }
 fn default_title() -> String {
     "veha-player".into()
+}
+fn default_fullscreen() -> bool {
+    true
 }
 
 impl Default for PlayerConfig {
@@ -51,6 +58,7 @@ impl Default for PlayerConfig {
             default_playlist: None,
             socket_path: default_socket_path(),
             title: default_title(),
+            fullscreen: default_fullscreen(),
         }
     }
 }
