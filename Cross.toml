@@ -1,6 +1,17 @@
 [target.aarch64-unknown-linux-gnu]
+# Install FFmpeg 8 (BtbN pre-built) and ALSA dev libs inside the cross container.
+# The cross container base is Ubuntu 20.04 which only has FFmpeg 4.2 in apt —
+# downloading from BtbN is required. FFMPEG_DIR is passed in by the workflow.
 pre-build = [
-    "dpkg --add-architecture arm64",
+    "dpkg --add-architecture $CROSS_DEB_ARCH",
     "apt-get update",
-    "apt-get install -y --no-install-recommends libavcodec-dev:arm64 libavformat-dev:arm64 libavutil-dev:arm64 libswscale-dev:arm64 libswresample-dev:arm64"
+    "apt-get install -y --no-install-recommends wget xz-utils libasound2-dev:$CROSS_DEB_ARCH",
+    "wget -q -O /tmp/ffmpeg.tar.xz https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl-shared.tar.xz",
+    "mkdir -p /opt/ffmpeg8",
+    "tar -xf /tmp/ffmpeg.tar.xz --strip-components=1 -C /opt/ffmpeg8",
+    "rm /tmp/ffmpeg.tar.xz"
 ]
+
+[target.aarch64-unknown-linux-gnu.env]
+# Pass FFMPEG_DIR from the runner into the cross container so ffmpeg-sys-next can find the headers.
+passthrough = ["FFMPEG_DIR"]

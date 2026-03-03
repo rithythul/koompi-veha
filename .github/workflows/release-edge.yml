@@ -19,6 +19,7 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             artifact: veha-edge-x86_64-linux
             use_cross: false
+            ffmpeg_url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl-shared.tar.xz
           - target: aarch64-unknown-linux-gnu
             artifact: veha-edge-aarch64-linux
             use_cross: true
@@ -43,9 +44,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      - name: Install FFmpeg dev libs (x86_64 only)
+      # Ubuntu apt only has FFmpeg 6.x; download FFmpeg 8 shared libs from BtbN.
+      # FFMPEG_DIR is picked up by ffmpeg-sys-next's build script.
+      - name: Install FFmpeg 8 dev libs (x86_64)
         if: matrix.use_cross == false
-        run: sudo apt-get update && sudo apt-get install -y libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
+        run: |
+          wget -q -O /tmp/ffmpeg.tar.xz "${{ matrix.ffmpeg_url }}"
+          mkdir -p /opt/ffmpeg8
+          tar -xf /tmp/ffmpeg.tar.xz --strip-components=1 -C /opt/ffmpeg8
+          rm /tmp/ffmpeg.tar.xz
+          echo "FFMPEG_DIR=/opt/ffmpeg8" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=/opt/ffmpeg8/lib/pkgconfig" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=/opt/ffmpeg8/lib" >> $GITHUB_ENV
+
+      # rodio uses cpal which links against ALSA on Linux
+      - name: Install ALSA dev libs (x86_64)
+        if: matrix.use_cross == false
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libasound2-dev
 
       - name: Install cross (aarch64 only)
         if: matrix.use_cross == true
@@ -57,9 +72,13 @@ jobs:
         if: matrix.use_cross == false
         run: cargo build --release -p veha-edge
 
+      # FFMPEG_DIR is passed into the cross container via Cross.toml [env] passthrough.
+      # The pre-build hook in Cross.toml installs FFmpeg 8 + ALSA libs inside the container.
       - name: Build (cross aarch64)
         if: matrix.use_cross == true
         run: cross build --release -p veha-edge --target ${{ matrix.target }}
+        env:
+          FFMPEG_DIR: /opt/ffmpeg8
 
       - name: Rename artifact
         run: |
