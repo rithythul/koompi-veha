@@ -65,8 +65,7 @@ export default function PlayLogs() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-text-primary">Play Logs</h1>
+      <div className="flex items-center justify-end mb-6">
         {logs.length > 0 && (
           <Button variant="secondary" size="sm" onClick={() => exportCsv(logs)}>
             <Download className="w-4 h-4" /> Export CSV

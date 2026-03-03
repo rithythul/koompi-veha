@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Settings as SettingsIcon, Key, Plus, Trash2, Copy, Check } from 'lucide-react'
+import { Key, Plus, Trash2, Copy, Check } from 'lucide-react'
 import { useApiKeys, useCreateApiKey, useDeleteApiKey } from '../api/apikeys'
 import { Card } from '../components/ui/Card'
 import { Button } from '../components/ui/Button'
@@ -66,15 +66,7 @@ export default function Settings() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-accent/15 rounded-lg flex items-center justify-center">
-          <SettingsIcon className="w-5 h-5 text-accent" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold text-text-primary">Settings</h1>
-          <p className="text-xs text-text-secondary">Manage API keys and integrations</p>
-        </div>
-      </div>
+      <p className="text-xs text-text-secondary mb-6">Manage API keys and integrations</p>
 
       <Card
         title="API Keys"

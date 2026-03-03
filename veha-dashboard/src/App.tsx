@@ -13,7 +13,6 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Boards = lazy(() => import('./pages/Boards'))
 const BoardDetail = lazy(() => import('./pages/BoardDetail'))
 const Zones = lazy(() => import('./pages/Zones'))
-const Groups = lazy(() => import('./pages/Groups'))
 const MediaLibrary = lazy(() => import('./pages/MediaLibrary'))
 const Playlists = lazy(() => import('./pages/Playlists'))
 const PlaylistEditor = lazy(() => import('./pages/PlaylistEditor'))
@@ -67,7 +66,6 @@ export default function App() {
                 <Route path="/boards" element={<Boards />} />
                 <Route path="/boards/:id" element={<BoardDetail />} />
                 <Route path="/zones" element={<Zones />} />
-                <Route path="/groups" element={<Groups />} />
                 <Route path="/media" element={<MediaLibrary />} />
                 <Route path="/playlists" element={<Playlists />} />
                 <Route path="/playlists/:id/edit" element={<PlaylistEditor />} />

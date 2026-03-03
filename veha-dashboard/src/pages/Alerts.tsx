@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Bell, CheckCircle, Info } from 'lucide-react'
+import { AlertTriangle, CheckCircle, Info } from 'lucide-react'
 import { useAlerts, useAcknowledgeAlert } from '../api/alerts'
 import { Card } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
@@ -59,15 +59,7 @@ export default function Alerts() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-accent/15 rounded-lg flex items-center justify-center">
-          <Bell className="w-5 h-5 text-accent" />
-        </div>
-        <div>
-          <h1 className="text-xl font-semibold text-text-primary">Alerts</h1>
-          <p className="text-xs text-text-secondary">Board status and campaign notifications</p>
-        </div>
-      </div>
+      <p className="text-xs text-text-secondary mb-6">Board status and campaign notifications</p>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 bg-bg-elevated rounded-lg p-1 w-fit">

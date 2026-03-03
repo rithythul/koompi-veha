@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   Monitor,
   MapPin,
-  FolderOpen,
   Image,
   ListVideo,
   Building2,
@@ -43,8 +42,6 @@ const sections: NavSection[] = [
     title: 'Fleet',
     items: [
       { label: 'Boards', path: '/boards', icon: Monitor },
-      { label: 'Zones', path: '/zones', icon: MapPin },
-      { label: 'Groups', path: '/groups', icon: FolderOpen },
     ],
   },
   {
@@ -74,6 +71,7 @@ const sections: NavSection[] = [
     title: 'System',
     items: [
       { label: 'Schedules', path: '/schedules', icon: Clock },
+      { label: 'Zones', path: '/zones', icon: MapPin },
       { label: 'Settings', path: '/settings', icon: Settings, adminOnly: true },
       { label: 'Users', path: '/users', icon: Users, adminOnly: true },
     ],

@@ -38,9 +38,6 @@ export default function Reports() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-text-primary">Revenue Reports</h1>
-      </div>
 
       {/* Filters */}
       <Card className="mb-4">

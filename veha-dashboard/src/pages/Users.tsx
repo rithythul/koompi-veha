@@ -108,8 +108,7 @@ export default function Users() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-text-primary">Users</h1>
+      <div className="flex items-center justify-end mb-6">
         <Button onClick={openCreate} size="sm">
           <Plus className="w-4 h-4" /> New User
         </Button>

@@ -89,8 +89,7 @@ export default function MediaLibrary() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-text-primary">Media Library</h1>
+      <div className="flex items-center justify-end mb-6">
         <div className="flex items-center gap-2">
           {items.length > 0 && (
             <div className="flex items-center bg-bg-surface border border-border-default rounded-lg overflow-hidden">
