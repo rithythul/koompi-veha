@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Play, Pause, SkipForward, SkipBack, Monitor, Pencil, Camera, Film, Radio, TerminalSquare, RefreshCw, Power, Cpu, HardDrive, Thermometer, Clock } from 'lucide-react'
+import { ArrowLeft, Play, Pause, SkipForward, SkipBack, Monitor, Pencil, Camera, Film, Radio, TerminalSquare, RefreshCw, Power, Cpu, HardDrive, Thermometer, Clock, CalendarClock } from 'lucide-react'
 
 const BoardTerminal = lazy(() => import('../components/boards/BoardTerminal'))
 import { useBoard, useUpdateBoard, useSendBoardCommand, useBoardResolvedSchedule, useBoardScreenshotMeta, useBoardScreenshots, useLiveStatus, usePingBoard, useRestartAgent, useRestartPlayer } from '../api/boards'
 import { usePlayLogs } from '../api/playlogs'
 import { useZones } from '../api/zones'
 import { useGroups } from '../api/groups'
+import { BoardScheduleTimeline } from '../components/boards/BoardScheduleTimeline'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Card } from '../components/ui/Card'
@@ -566,11 +567,22 @@ export default function BoardDetail() {
             </div>
           </Card>
 
-          {/* Resolved Schedule */}
-          <Card title={`Resolved Schedule (${resolvedItems.length} items)`}>
-            {resolvedItems.length === 0 ? (
-              <p className="text-sm text-text-muted">No active schedule for this board.</p>
-            ) : (
+          {/* 24-hour Schedule Timeline */}
+          <Card
+            title="Time Slots"
+            action={
+              <div className="flex items-center gap-1.5 text-xs text-text-muted">
+                <CalendarClock className="w-3.5 h-3.5" />
+                <span>24h schedule</span>
+              </div>
+            }
+          >
+            <BoardScheduleTimeline boardId={board.id} groupId={board.group_id} />
+          </Card>
+
+          {/* Resolved Schedule (what's currently queued) */}
+          {resolvedItems.length > 0 && (
+            <Card title={`Now Playing Queue (${resolvedItems.length} items)`}>
               <div className="space-y-1">
                 {resolvedItems.map((item, i) => (
                   <div
@@ -592,8 +604,8 @@ export default function BoardDetail() {
                   </div>
                 ))}
               </div>
-            )}
-          </Card>
+            </Card>
+          )}
         </div>
 
         {/* Right column — Recent Play Logs */}

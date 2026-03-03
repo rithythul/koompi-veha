@@ -3,7 +3,7 @@ import { apiClient } from './client'
 import { toQueryString } from '../lib/utils'
 import type { Schedule, CreateSchedule, PaginatedResponse } from '../types/api'
 
-export function useSchedules(params?: { page?: number; per_page?: number }) {
+export function useSchedules(params?: { page?: number; per_page?: number; board_id?: string; group_id?: string }) {
   return useQuery({
     queryKey: ['schedules', params],
     queryFn: () =>
