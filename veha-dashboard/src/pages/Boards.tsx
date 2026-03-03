@@ -2,11 +2,11 @@ import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Monitor, Plus, Search, List, Map, Trash2, LayoutGrid,
-  RefreshCw, Power, Cpu, HardDrive, Clock,
+  RefreshCw, Power, Cpu, HardDrive, Clock, Pencil, Layers,
 } from 'lucide-react'
 import { useBoards, useCreateBoard, useDeleteBoard, useLiveStatus, usePingBoard, useBulkAction } from '../api/boards'
+import { useGroups, useCreateGroup, useUpdateGroup, useDeleteGroup } from '../api/groups'
 import { useZones } from '../api/zones'
-import { useGroups } from '../api/groups'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
@@ -17,12 +17,12 @@ import { EmptyState } from '../components/ui/EmptyState'
 import { PageSpinner } from '../components/ui/Spinner'
 import { Pagination } from '../components/ui/Pagination'
 import { useToast } from '../components/ui/Toast'
-import { formatRelativeTime } from '../lib/utils'
+import { cn, formatRelativeTime } from '../lib/utils'
 import { BoardMap } from '../components/boards/BoardMap'
 import { useBoardStatus } from '../hooks/useBoardStatus'
-import type { Board, BoardLiveStatus } from '../types/api'
+import type { Board, BoardLiveStatus, Group } from '../types/api'
 
-// ── Status helpers ──────────────────────────────────────────────────────
+// ── Status helpers ───────────────────────────────────────────────────────────
 
 type DisplayStatus = 'playing' | 'idle' | 'degraded' | 'offline' | 'unknown'
 
@@ -106,7 +106,112 @@ function BoardThumbnail({ boardId, lastSeen, status, size = 'sm' }: {
   )
 }
 
-// ── Main component ──────────────────────────────────────────────────────
+// ── Group Card ───────────────────────────────────────────────────────────────
+
+function GroupCard({
+  group,
+  allBoards,
+  liveStatus,
+  isSelected,
+  onClick,
+  onEdit,
+  onDelete,
+}: {
+  group: Group
+  allBoards: Board[]
+  liveStatus: Record<string, BoardLiveStatus> | undefined
+  isSelected: boolean
+  onClick: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const groupBoards = allBoards.filter((b) => b.group_id === group.id)
+  const onlineCount = groupBoards.filter((b) => {
+    const live = liveStatus?.[b.id]
+    return live ? live.connectivity !== 'offline' : b.status === 'online'
+  }).length
+
+  return (
+    <div
+      onClick={onClick}
+      className={cn(
+        'group relative bg-bg-surface border rounded-xl p-4 cursor-pointer transition-all',
+        isSelected
+          ? 'border-accent shadow-sm shadow-accent/10'
+          : 'border-border-default hover:border-border-hover',
+      )}
+    >
+      {/* Actions — revealed on hover */}
+      <div
+        className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onEdit}
+          className="p-1 rounded hover:bg-bg-elevated text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+          title="Rename"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={onDelete}
+          className="p-1 rounded hover:bg-bg-elevated text-text-muted hover:text-status-error transition-colors cursor-pointer"
+          title="Delete list"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Icon + name */}
+      <div className="flex items-start gap-3 mb-3">
+        <div className={cn(
+          'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
+          isSelected ? 'bg-accent/15 text-accent' : 'bg-bg-elevated text-text-muted',
+        )}>
+          <Layers className="w-4 h-4" />
+        </div>
+        <div className="min-w-0 pr-10">
+          <p className="text-sm font-semibold text-text-primary truncate">{group.name}</p>
+          <p className="text-xs text-text-muted mt-0.5">
+            {groupBoards.length} {groupBoards.length === 1 ? 'board' : 'boards'}
+            {groupBoards.length > 0 && ` · ${onlineCount} online`}
+          </p>
+        </div>
+      </div>
+
+      {/* Status dots */}
+      {groupBoards.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {groupBoards.slice(0, 24).map((b) => {
+            const live = liveStatus?.[b.id]
+            const status = getDisplayStatus(b, live)
+            return (
+              <div
+                key={b.id}
+                className={cn('w-2 h-2 rounded-full', STATUS_CONFIG[status].dot)}
+                title={b.name}
+              />
+            )
+          })}
+          {groupBoards.length > 24 && (
+            <span className="text-[10px] text-text-muted leading-[8px]">+{groupBoards.length - 24}</span>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-text-muted/50 italic">No boards assigned</p>
+      )}
+
+      {/* Selected indicator */}
+      {isSelected && (
+        <div className="mt-2.5 pt-2.5 border-t border-border-default">
+          <span className="text-[11px] text-accent font-medium">Filtering boards below</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 export default function Boards() {
   useBoardStatus()
@@ -116,8 +221,15 @@ export default function Boards() {
   const [filterZone, setFilterZone] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [viewMode, setViewMode] = useState<'table' | 'cards' | 'map'>('table')
-  const [filterMode, setFilterMode] = useState<'all' | 'zone' | 'group' | 'type'>('all')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+
+  // Board List (Group) CRUD state
+  const [showCreateGroup, setShowCreateGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [editGroupId, setEditGroupId] = useState<string | null>(null)
+  const [editGroupName, setEditGroupName] = useState('')
+  const [deleteGroupId, setDeleteGroupId] = useState<string | null>(null)
 
   const { data, isLoading } = useBoards({
     page,
@@ -126,9 +238,14 @@ export default function Boards() {
     status: filterStatus || undefined,
   })
 
+  // Separate query for all boards (used for group membership stats)
+  const { data: allBoardsData } = useBoards({ per_page: 500 })
+  const allBoards = allBoardsData?.data ?? []
+
   const { data: liveStatus } = useLiveStatus()
   const { data: zones } = useZones()
   const { data: groupsData } = useGroups({ per_page: 200 })
+
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
   const [newGroupId, setNewGroupId] = useState('')
@@ -139,12 +256,22 @@ export default function Boards() {
   const pingBoard = usePingBoard()
   const bulkAction = useBulkAction()
 
+  const createGroup = useCreateGroup()
+  const updateGroup = useUpdateGroup(editGroupId ?? '')
+  const deleteGroup = useDeleteGroup()
+
   const boards = useMemo(() => {
     const all = data?.data ?? []
-    if (!search) return all
-    const q = search.toLowerCase()
-    return all.filter((b) => b.name.toLowerCase().includes(q))
-  }, [data, search])
+    let result = all
+    if (search) {
+      const q = search.toLowerCase()
+      result = result.filter((b) => b.name.toLowerCase().includes(q))
+    }
+    if (selectedGroupId) {
+      result = result.filter((b) => b.group_id === selectedGroupId)
+    }
+    return result
+  }, [data, search, selectedGroupId])
 
   const totalPages = Math.ceil((data?.total ?? 0) / (data?.per_page ?? 50))
   const zoneList = zones ?? []
@@ -152,35 +279,6 @@ export default function Boards() {
 
   const getZoneName = (id: string | null) => zoneList.find((z) => z.id === id)?.name ?? '--'
   const getGroupName = (id: string | null) => groups.find((g) => g.id === id)?.name ?? '--'
-
-  // Group boards for filter tabs
-  const grouped = useMemo(() => {
-    if (filterMode === 'zone') {
-      const map: Record<string, Board[]> = {}
-      for (const b of boards) {
-        const key = b.zone_id ?? 'unassigned'
-        ;(map[key] ??= []).push(b)
-      }
-      return map
-    }
-    if (filterMode === 'group') {
-      const map: Record<string, Board[]> = {}
-      for (const b of boards) {
-        const key = b.group_id ?? 'unassigned'
-        ;(map[key] ??= []).push(b)
-      }
-      return map
-    }
-    if (filterMode === 'type') {
-      const map: Record<string, Board[]> = {}
-      for (const b of boards) {
-        const key = b.board_type ?? 'unassigned'
-        ;(map[key] ??= []).push(b)
-      }
-      return map
-    }
-    return { all: boards }
-  }, [boards, filterMode])
 
   if (isLoading) return <PageSpinner />
 
@@ -203,7 +301,10 @@ export default function Boards() {
 
   const handleCreate = async () => {
     try {
-      await createBoard.mutateAsync({ name: newName, group_id: newGroupId || undefined })
+      await createBoard.mutateAsync({
+        name: newName,
+        group_id: newGroupId || undefined,
+      })
       toast.success('Board created')
       setShowCreate(false)
       setNewName('')
@@ -246,11 +347,40 @@ export default function Boards() {
     }
   }
 
-  const getGroupLabel = (key: string): string => {
-    if (key === 'unassigned') return 'Unassigned'
-    if (filterMode === 'zone') return getZoneName(key)
-    if (filterMode === 'group') return getGroupName(key)
-    return key.replace('_', ' ')
+  const handleCreateGroup = async () => {
+    if (!newGroupName.trim()) return
+    try {
+      await createGroup.mutateAsync({ name: newGroupName.trim() })
+      toast.success('Board list created')
+      setShowCreateGroup(false)
+      setNewGroupName('')
+    } catch (err: any) {
+      toast.error(err.message)
+    }
+  }
+
+  const handleEditGroup = async () => {
+    if (!editGroupId || !editGroupName.trim()) return
+    try {
+      await updateGroup.mutateAsync({ name: editGroupName.trim() })
+      toast.success('Board list renamed')
+      setEditGroupId(null)
+    } catch (err: any) {
+      toast.error(err.message)
+    }
+  }
+
+  const handleDeleteGroup = async () => {
+    if (!deleteGroupId) return
+    try {
+      await deleteGroup.mutateAsync(deleteGroupId)
+      toast.success('Board list deleted')
+      if (selectedGroupId === deleteGroupId) setSelectedGroupId(null)
+    } catch (err: any) {
+      toast.error(err.message)
+    } finally {
+      setDeleteGroupId(null)
+    }
   }
 
   const renderBoardRow = (board: Board) => {
@@ -324,20 +454,6 @@ export default function Boards() {
     )
   }
 
-  const renderTableSection = (sectionBoards: Board[], header?: string) => (
-    <>
-      {header && (
-        <tr key={`header-${header}`}>
-          <td colSpan={12} className="px-4 py-2 bg-bg-primary border-b border-border-default">
-            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{header}</span>
-            <span className="text-xs text-text-muted ml-2">({sectionBoards.length})</span>
-          </td>
-        </tr>
-      )}
-      {sectionBoards.map(renderBoardRow)}
-    </>
-  )
-
   const renderCardView = (cardBoards: Board[]) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
       {cardBoards.map((board) => {
@@ -351,10 +467,7 @@ export default function Boards() {
             onClick={() => navigate(`/boards/${board.id}`)}
             className="bg-bg-surface border border-border-default rounded-lg overflow-hidden hover:border-accent/50 transition-colors cursor-pointer group relative"
           >
-            {/* Status stripe */}
             <div className={`absolute left-0 top-0 bottom-0 w-1 ${cfg.dot.split(' ')[0]}`} />
-
-            {/* Checkbox */}
             <div className="absolute top-2 left-3 z-10" onClick={(e) => e.stopPropagation()}>
               <input
                 type="checkbox"
@@ -363,7 +476,6 @@ export default function Boards() {
                 className="rounded border-border-default accent-accent"
               />
             </div>
-
             <div className="relative">
               <BoardThumbnail boardId={board.id} lastSeen={board.last_seen} status={board.status} size="lg" />
               <div className="absolute top-2 right-2">
@@ -398,41 +510,87 @@ export default function Boards() {
     </div>
   )
 
+  const selectedGroupName = selectedGroupId ? groups.find((g) => g.id === selectedGroupId)?.name : null
+
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-text-primary">Boards</h1>
+      {/* ── Board Lists ───────────────────────────────────────────────────── */}
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Board Lists</h2>
+            <p className="text-[11px] text-text-muted mt-0.5">Group boards for targeted campaigns. Click a list to filter boards.</p>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => { setNewGroupName(''); setShowCreateGroup(true) }}
+          >
+            <Plus className="w-3.5 h-3.5" /> New List
+          </Button>
+        </div>
+
+        {groups.length === 0 ? (
+          <div className="border border-dashed border-border-default rounded-xl p-6 text-center">
+            <Layers className="w-6 h-6 text-text-muted/40 mx-auto mb-2" />
+            <p className="text-sm text-text-muted">No board lists yet.</p>
+            <p className="text-xs text-text-muted/70 mt-1">
+              Create a list to group boards — e.g., "Downtown Campaign" with 30 boards.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {groups.map((group) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                allBoards={allBoards}
+                liveStatus={liveStatus}
+                isSelected={selectedGroupId === group.id}
+                onClick={() => setSelectedGroupId((prev) => (prev === group.id ? null : group.id))}
+                onEdit={() => { setEditGroupId(group.id); setEditGroupName(group.name) }}
+                onDelete={() => setDeleteGroupId(group.id)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Boards ───────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
+            {selectedGroupName ? selectedGroupName : 'All Boards'}
+          </h2>
+          {selectedGroupId && (
+            <button
+              onClick={() => setSelectedGroupId(null)}
+              className="text-xs text-accent hover:text-accent-hover cursor-pointer"
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
+          {/* View mode toggles */}
           <div className="flex items-center bg-bg-surface border border-border-default rounded-lg overflow-hidden">
             <button
               onClick={() => setViewMode('table')}
-              className={`p-1.5 transition-colors ${
-                viewMode === 'table'
-                  ? 'bg-accent text-white'
-                  : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated'
-              }`}
+              className={`p-1.5 transition-colors ${viewMode === 'table' ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated'}`}
               title="List view"
             >
               <List className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('cards')}
-              className={`p-1.5 transition-colors ${
-                viewMode === 'cards'
-                  ? 'bg-accent text-white'
-                  : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated'
-              }`}
+              className={`p-1.5 transition-colors ${viewMode === 'cards' ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated'}`}
               title="Card view"
             >
               <LayoutGrid className="w-4 h-4" />
             </button>
             <button
               onClick={() => setViewMode('map')}
-              className={`p-1.5 transition-colors ${
-                viewMode === 'map'
-                  ? 'bg-accent text-white'
-                  : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated'
-              }`}
+              className={`p-1.5 transition-colors ${viewMode === 'map' ? 'bg-accent text-white' : 'text-text-muted hover:text-text-primary hover:bg-bg-elevated'}`}
               title="Map view"
             >
               <Map className="w-4 h-4" />
@@ -444,49 +602,31 @@ export default function Boards() {
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex gap-1 bg-bg-surface border border-border-default rounded-lg p-1">
-          {(['all', 'zone', 'group', 'type'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setFilterMode(mode)}
-              className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                filterMode === mode
-                  ? 'bg-bg-primary shadow-sm font-medium text-text-primary'
-                  : 'text-text-muted hover:text-text-primary'
-              }`}
-            >
-              {mode === 'all' ? 'All' : mode === 'zone' ? 'By Zone' : mode === 'group' ? 'By Group' : 'By Type'}
-            </button>
-          ))}
-        </div>
-        <div className="flex-1" />
-        <div className="flex flex-wrap gap-2">
-          <div className="relative min-w-[200px] max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search boards..."
-              className="w-full bg-bg-surface border border-border-default rounded-lg pl-9 pr-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
-            />
-          </div>
-          <Select
-            value={filterZone}
-            onChange={(e) => { setFilterZone(e.target.value); setPage(1) }}
-            options={zoneList.map((z) => ({ value: z.id, label: z.name }))}
-            placeholder="All Zones"
-            className="w-36"
-          />
-          <Select
-            value={filterStatus}
-            onChange={(e) => { setFilterStatus(e.target.value); setPage(1) }}
-            options={[{ value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }]}
-            placeholder="All Status"
-            className="w-32"
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <div className="relative min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search boards..."
+            className="w-full bg-bg-surface border border-border-default rounded-lg pl-9 pr-3 py-1.5 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-accent"
           />
         </div>
+        <Select
+          value={filterZone}
+          onChange={(e) => { setFilterZone(e.target.value); setPage(1) }}
+          options={zoneList.map((z) => ({ value: z.id, label: z.name }))}
+          placeholder="All Zones"
+          className="w-36"
+        />
+        <Select
+          value={filterStatus}
+          onChange={(e) => { setFilterStatus(e.target.value); setPage(1) }}
+          options={[{ value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }]}
+          placeholder="All Status"
+          className="w-32"
+        />
       </div>
 
       {/* Bulk Action Bar */}
@@ -505,9 +645,7 @@ export default function Boards() {
             </Button>
           </div>
           <div className="flex-1" />
-          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
-            Deselect
-          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Deselect</Button>
         </div>
       )}
 
@@ -517,7 +655,7 @@ export default function Boards() {
           zones={zoneList}
           onBoardClick={(id) => navigate(`/boards/${id}`)}
         />
-      ) : boards.length === 0 && !search ? (
+      ) : boards.length === 0 && !search && !selectedGroupId ? (
         <EmptyState
           icon={Monitor}
           title="No boards"
@@ -527,16 +665,7 @@ export default function Boards() {
         <p className="text-sm text-text-muted text-center py-8">No boards match your search.</p>
       ) : viewMode === 'cards' ? (
         <>
-          {filterMode === 'all'
-            ? renderCardView(boards)
-            : Object.entries(grouped).map(([key, sectionBoards]) => (
-                <div key={key} className="mb-6">
-                  <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-3">
-                    {getGroupLabel(key)} <span className="text-text-muted font-normal">({sectionBoards.length})</span>
-                  </h3>
-                  {renderCardView(sectionBoards)}
-                </div>
-              ))}
+          {renderCardView(boards)}
           {totalPages > 1 && (
             <div className="mt-4 flex justify-center">
               <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
@@ -562,7 +691,7 @@ export default function Boards() {
                   <th className="px-3 py-3">Name</th>
                   <th className="px-3 py-3">Content</th>
                   <th className="px-3 py-3">Zone</th>
-                  <th className="px-3 py-3">Group</th>
+                  <th className="px-3 py-3">List</th>
                   <th className="px-3 py-3">
                     <div className="flex items-center gap-1"><Cpu className="w-3 h-3" /> CPU</div>
                   </th>
@@ -577,15 +706,10 @@ export default function Boards() {
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {filterMode === 'all'
-                  ? boards.map(renderBoardRow)
-                  : Object.entries(grouped).map(([key, sectionBoards]) =>
-                      renderTableSection(sectionBoards, getGroupLabel(key))
-                    )}
+                {boards.map(renderBoardRow)}
               </tbody>
             </table>
           </Card>
-
           {totalPages > 1 && (
             <div className="mt-4 flex justify-center">
               <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
@@ -594,6 +718,7 @@ export default function Boards() {
         </>
       )}
 
+      {/* New Board Modal */}
       <Modal
         open={showCreate}
         onClose={() => setShowCreate(false)}
@@ -611,15 +736,65 @@ export default function Boards() {
         <div className="space-y-4">
           <Input label="Board Name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. BKK-001" autoFocus />
           <Select
-            label="Group (optional)"
+            label="Board List (optional)"
             value={newGroupId}
             onChange={(e) => setNewGroupId(e.target.value)}
             options={groups.map((g) => ({ value: g.id, label: g.name }))}
-            placeholder="No group"
+            placeholder="No list"
           />
         </div>
       </Modal>
 
+      {/* New Board List Modal */}
+      <Modal
+        open={showCreateGroup}
+        onClose={() => setShowCreateGroup(false)}
+        title="New Board List"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowCreateGroup(false)}>Cancel</Button>
+            <Button onClick={handleCreateGroup} loading={createGroup.isPending} disabled={!newGroupName.trim()}>
+              Create
+            </Button>
+          </>
+        }
+      >
+        <Input
+          label="List Name"
+          value={newGroupName}
+          onChange={(e) => setNewGroupName(e.target.value)}
+          placeholder="e.g. Downtown Campaign"
+          autoFocus
+          onKeyDown={(e) => { if (e.key === 'Enter' && newGroupName.trim()) handleCreateGroup() }}
+        />
+      </Modal>
+
+      {/* Rename Board List Modal */}
+      <Modal
+        open={!!editGroupId}
+        onClose={() => setEditGroupId(null)}
+        title="Rename Board List"
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditGroupId(null)}>Cancel</Button>
+            <Button onClick={handleEditGroup} loading={updateGroup.isPending} disabled={!editGroupName.trim()}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <Input
+          label="List Name"
+          value={editGroupName}
+          onChange={(e) => setEditGroupName(e.target.value)}
+          autoFocus
+          onKeyDown={(e) => { if (e.key === 'Enter' && editGroupName.trim()) handleEditGroup() }}
+        />
+      </Modal>
+
+      {/* Delete Board */}
       <ConfirmDialog
         open={!!deleteId}
         onClose={() => setDeleteId(null)}
@@ -628,6 +803,17 @@ export default function Boards() {
         message="This will permanently delete this board and its play logs."
         confirmLabel="Delete"
         loading={deleteBoard.isPending}
+      />
+
+      {/* Delete Board List */}
+      <ConfirmDialog
+        open={!!deleteGroupId}
+        onClose={() => setDeleteGroupId(null)}
+        onConfirm={handleDeleteGroup}
+        title="Delete Board List"
+        message="This removes the list. Boards in this list will not be deleted."
+        confirmLabel="Delete List"
+        loading={deleteGroup.isPending}
       />
     </div>
   )

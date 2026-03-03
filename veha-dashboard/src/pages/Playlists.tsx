@@ -24,47 +24,13 @@ function totalDuration(pl: PlaylistResponse): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`
 }
 
-function PlaylistThumbnail({ pl, mediaList }: { pl: PlaylistResponse; mediaList: Media[] }) {
-  const items = pl.items.slice(0, 3)
-
-  if (items.length === 0) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-bg-elevated">
-        <ListVideo className="w-8 h-8 text-text-muted/30" />
-      </div>
-    )
-  }
-
-  if (items.length === 1) {
-    return <ThumbImg source={items[0].source} mediaList={mediaList} className="w-full h-full" />
-  }
-
-  // 2-3 items: split view
-  return (
-    <div className="w-full h-full flex gap-0.5">
-      <ThumbImg source={items[0].source} mediaList={mediaList} className="flex-1 h-full" />
-      <div className="w-1/3 h-full flex flex-col gap-0.5">
-        {items.slice(1).map((item, i) => (
-          <ThumbImg key={i} source={item.source} mediaList={mediaList} className="flex-1 w-full" />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function ThumbImg({ source, mediaList, className }: { source: string; mediaList: Media[]; className?: string }) {
   const mediaId = resolveMediaId(source)
   const media = mediaId ? mediaList.find((m) => m.id === mediaId) : null
   const isVideo = media?.mime_type.startsWith('video/')
-  const src = mediaId
-    ? isVideo
-      ? mediaThumbnailUrl(mediaId)
-      : mediaDownloadUrl(mediaId)
-    : null
+  const src = mediaId ? (isVideo ? mediaThumbnailUrl(mediaId) : mediaDownloadUrl(mediaId)) : null
 
-  if (!src) {
-    return <div className={cn('bg-bg-elevated', className)} />
-  }
+  if (!src) return <div className={cn('bg-bg-elevated', className)} />
 
   return (
     <img
@@ -72,16 +38,39 @@ function ThumbImg({ source, mediaList, className }: { source: string; mediaList:
       alt=""
       loading="lazy"
       className={cn('object-cover', className)}
-      onError={(e) => {
-        e.currentTarget.style.display = 'none'
-      }}
+      onError={(e) => { e.currentTarget.style.display = 'none' }}
     />
   )
 }
 
-// ── Card ─────────────────────────────────────────────────────────────────────
+// Horizontal filmstrip: 4 sequential cells showing the ordered media items
+function PlaylistFilmstrip({ pl, mediaList }: { pl: PlaylistResponse; mediaList: Media[] }) {
+  const SLOTS = 4
+  return (
+    <div className="flex gap-px w-[160px] h-[36px] flex-shrink-0 rounded-md overflow-hidden bg-bg-elevated border border-border-default">
+      {Array.from({ length: SLOTS }).map((_, i) => {
+        const item = pl.items[i]
+        if (!item) {
+          return (
+            <div
+              key={i}
+              className={cn('flex-1 bg-bg-elevated', i > 0 && 'border-l border-border-default/50')}
+            />
+          )
+        }
+        return (
+          <div key={i} className={cn('flex-1 relative overflow-hidden', i > 0 && 'border-l border-border-default/50')}>
+            <ThumbImg source={item.source} mediaList={mediaList} className="w-full h-full" />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
-function PlaylistCard({
+// ── Row ───────────────────────────────────────────────────────────────────────
+
+function PlaylistRow({
   pl,
   mediaList,
   onEdit,
@@ -95,55 +84,55 @@ function PlaylistCard({
   return (
     <div
       onClick={onEdit}
-      className="group relative bg-bg-surface border border-border-default rounded-xl overflow-hidden hover:border-border-hover transition-all cursor-pointer"
+      className="group flex items-center gap-4 px-4 py-3 border-b border-border-default last:border-0 hover:bg-bg-elevated transition-colors cursor-pointer"
     >
-      {/* Thumbnail */}
-      <div className="aspect-video bg-bg-elevated overflow-hidden relative">
-        <PlaylistThumbnail pl={pl} mediaList={mediaList} />
-
-        {/* Hover action overlay */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-          <button
-            onClick={(e) => { e.stopPropagation(); onEdit() }}
-            className="p-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
-            title="Edit"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); onDelete() }}
-            className="p-2.5 rounded-full bg-white/10 hover:bg-red-500/80 text-white transition-colors cursor-pointer"
-            title="Delete"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Item count badge */}
-        <div className="absolute top-2 right-2 bg-black/60 rounded-md px-2 py-0.5 text-[11px] text-white/90 tabular-nums">
-          {pl.items.length} {pl.items.length === 1 ? 'item' : 'items'}
-        </div>
-
-        {/* Loop badge */}
-        {pl.loop_playlist && (
-          <div className="absolute top-2 left-2 bg-black/60 rounded-md p-1" title="Loops">
-            <RotateCcw className="w-3 h-3 text-white/80" />
-          </div>
-        )}
-      </div>
+      {/* Filmstrip */}
+      <PlaylistFilmstrip pl={pl} mediaList={mediaList} />
 
       {/* Info */}
-      <div className="px-3 py-2.5">
-        <p className="text-sm font-medium text-text-primary truncate">{pl.name}</p>
-        <div className="flex items-center gap-3 mt-1">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-text-primary truncate">{pl.name}</p>
+          {pl.loop_playlist && (
+            <span title="Loops">
+              <RotateCcw className="w-3 h-3 text-text-muted flex-shrink-0" />
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 mt-0.5">
+          <span className="text-xs text-text-muted">
+            {pl.items.length} {pl.items.length === 1 ? 'item' : 'items'}
+          </span>
           {pl.items.length > 0 && (
-            <span className="flex items-center gap-1 text-[11px] text-text-muted">
+            <span className="flex items-center gap-1 text-xs text-text-muted">
               <Clock className="w-3 h-3" />
               {totalDuration(pl)}
             </span>
           )}
-          <span className="text-[11px] text-text-muted ml-auto">{formatDate(pl.updated_at)}</span>
         </div>
+      </div>
+
+      {/* Date */}
+      <span className="text-xs text-text-muted hidden sm:block flex-shrink-0 w-24 text-right">
+        {formatDate(pl.updated_at)}
+      </span>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit() }}
+          className="p-1.5 rounded hover:bg-bg-surface text-text-muted hover:text-text-primary transition-colors cursor-pointer"
+          title="Edit"
+        >
+          <Pencil className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          className="p-1.5 rounded hover:bg-bg-surface text-text-muted hover:text-status-error transition-colors cursor-pointer"
+          title="Delete"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   )
@@ -217,9 +206,21 @@ export default function Playlists() {
           action={{ label: 'New Playlist', onClick: openCreate }}
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className="bg-bg-surface border border-border-default rounded-xl overflow-hidden">
+          {/* Column header */}
+          <div className="flex items-center gap-4 px-4 py-2.5 border-b border-border-default bg-bg-primary">
+            <div className="w-[160px] flex-shrink-0 text-[11px] font-medium text-text-muted uppercase tracking-wider">
+              Sequence
+            </div>
+            <div className="flex-1 text-[11px] font-medium text-text-muted uppercase tracking-wider">Name</div>
+            <div className="hidden sm:block w-24 text-right text-[11px] font-medium text-text-muted uppercase tracking-wider">
+              Updated
+            </div>
+            <div className="w-16 flex-shrink-0" />
+          </div>
+
           {playlists.map((pl) => (
-            <PlaylistCard
+            <PlaylistRow
               key={pl.id}
               pl={pl}
               mediaList={mediaList}
