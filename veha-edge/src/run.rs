@@ -16,7 +16,7 @@ pub async fn run() {
     let restart_delay = Duration::from_secs(config.player_restart_delay_secs);
 
     tokio::join!(
-        supervise_player(exe, restart_delay),
+        supervise_player(exe, CONFIG_PATH.to_string(), restart_delay),
         veha_agent::run(agent_config),
     );
 }
@@ -43,12 +43,12 @@ fn load_config(path: &str) -> EdgeConfig {
 }
 
 /// Supervisor loop: spawns the player subprocess and restarts it if it exits.
-async fn supervise_player(exe: PathBuf, restart_delay: Duration) {
+async fn supervise_player(exe: PathBuf, config_path: String, restart_delay: Duration) {
     loop {
         info!("Starting player subprocess");
 
         let result = tokio::process::Command::new(&exe)
-            .arg("player")
+            .args(["player", "--config", &config_path])
             .status()
             .await;
 
