@@ -317,7 +317,8 @@ if [ "$OUTPUT_BACKEND" = "window" ]; then
     # Detect display server
     if [ -n "${WAYLAND_DISPLAY:-}" ]; then
         DESKTOP_ENV_LINES="Environment=WAYLAND_DISPLAY=${WAYLAND_DISPLAY}
-Environment=XDG_RUNTIME_DIR=${XDG_DIR}"
+Environment=XDG_RUNTIME_DIR=${XDG_DIR}
+Environment=DISPLAY=${DISPLAY:-:0}"
     elif [ -n "${DISPLAY:-}" ]; then
         DESKTOP_ENV_LINES="Environment=DISPLAY=${DISPLAY}
 Environment=XAUTHORITY=${DESKTOP_HOME}/.Xauthority"
@@ -326,11 +327,19 @@ Environment=XAUTHORITY=${DESKTOP_HOME}/.Xauthority"
         if [ -S "${XDG_DIR}/wayland-0" ] || [ -S "${XDG_DIR}/wayland-1" ]; then
             WL_SOCK=""
             for f in "${XDG_DIR}"/wayland-*; do
+                [ -S "$f" ] || continue
                 WL_SOCK=$(basename "$f")
                 break
             done
+            # Detect XWayland display (minifb needs X11)
+            XDISPLAY=""
+            for lockf in /tmp/.X*-lock; do
+                [ -f "$lockf" ] && XDISPLAY=":$(basename "$lockf" | sed 's/\.X\(.*\)-lock/\1/')" && break
+            done
+            XDISPLAY=${XDISPLAY:-:0}
             DESKTOP_ENV_LINES="Environment=WAYLAND_DISPLAY=${WL_SOCK}
-Environment=XDG_RUNTIME_DIR=${XDG_DIR}"
+Environment=XDG_RUNTIME_DIR=${XDG_DIR}
+Environment=DISPLAY=${XDISPLAY}"
         else
             DESKTOP_ENV_LINES="Environment=DISPLAY=:0
 Environment=XAUTHORITY=${DESKTOP_HOME}/.Xauthority"
