@@ -78,6 +78,7 @@ export const PreviewPlayer = forwardRef<PreviewPlayerHandle, PreviewPlayerProps>
 
     const playAll = () => {
       setSequential(true)
+      setElapsed(0)
       onIndexChange(0)
       setPlaying(true)
     }
