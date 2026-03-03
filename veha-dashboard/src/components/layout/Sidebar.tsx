@@ -183,7 +183,7 @@ export function Sidebar() {
           )}
         </button>
         {!collapsed && (
-          <p className="text-[10px] text-text-muted px-3 mt-1">v0.2.0</p>
+          <p className="text-[10px] text-text-muted px-3 mt-1">KOOMPI VEHA v0.2.0</p>
         )}
       </div>
     </aside>
