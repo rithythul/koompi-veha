@@ -4,6 +4,7 @@ use veha_player::PlayerConfig;
 #[derive(Parser)]
 #[command(name = "veha-player", about = "koompi-veha headless player daemon")]
 struct Args {
+    /// Path to config file (TOML)
     #[arg(short, long, default_value = "veha-player.toml")]
     config: String,
 }
