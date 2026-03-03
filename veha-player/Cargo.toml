@@ -3,6 +3,14 @@ name = "veha-player"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "veha_player"
+path = "src/lib.rs"
+
+[[bin]]
+name = "veha-player"
+path = "src/main.rs"
+
 [features]
 default = []
 framebuffer = ["veha-output/framebuffer"]
