@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# NOTE: This script is deprecated in favour of the veha-edge binary installer.
+# Download the pre-built binary from GitHub Releases and run:
+#   sudo SERVER_URL=http://... BOARD_ID=board-001 ./veha-edge install
+# See docs/plans/2026-03-03-veha-edge-design.md for details.
 # ──────────────────────────────────────────────────────────────────────────────
 # Veha Edge Device Installer (Billboard)
 #

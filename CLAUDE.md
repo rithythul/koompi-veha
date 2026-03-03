@@ -25,8 +25,8 @@ RUST_LOG=info cargo run -p veha-api -- --bind 0.0.0.0:3000 --database veha.db --
 # Deploy dashboard → API server
 cd veha-dashboard && bun run build && cp -r dist/* ../static/
 
-# Deploy edge device (non-interactive)
-sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 bash scripts/install-edge.sh
+# Deploy edge device
+sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 ./veha-edge install
 
 # Reset dev database (delete and restart — auto-migrates + creates admin)
 rm veha.db && cargo run -p veha-api -- --bind 0.0.0.0:3000
@@ -96,16 +96,22 @@ Session cleanup (hourly), campaign expiry (hourly), offline board alerts (5 min)
 ## Edge Device Setup
 
 ```bash
-# Install (creates systemd services: veha-player, veha-agent)
-sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 OUTPUT_BACKEND=framebuffer bash scripts/install-edge.sh
+# Download pre-built binary (pick your arch: x86_64-linux or aarch64-linux)
+wget https://github.com/rithythul/koompi-veha/releases/latest/download/veha-edge-x86_64-linux -O veha-edge
+chmod +x veha-edge
+sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 ./veha-edge install
+
+# Update to latest
+sudo veha-edge update
+
 # Uninstall
-sudo bash scripts/install-edge.sh --uninstall
+sudo veha-edge uninstall
+
 # Logs
-journalctl -u veha-agent -f
-journalctl -u veha-player -f
+journalctl -u veha-edge -f
 ```
 
-Agent config (`/etc/veha/veha-agent.toml`) — all fields with defaults:
+Edge config (`/etc/veha/veha-edge.toml`) — all fields with defaults:
 ```toml
 board_id = "board-001"                              # required
 api_url = "ws://192.168.1.17:3000/ws/agent"         # required
@@ -115,17 +121,11 @@ player_socket = "/run/veha/player.sock"
 report_interval_secs = 10
 screenshot_interval_secs = 60                       # 0 to disable
 cache_dir = "/var/cache/veha"
-```
-
-Player config (`/etc/veha/veha-player.toml`) — all fields with defaults:
-```toml
-output_backend = "window"                           # "window" | "framebuffer" | "null"
+output_backend = "framebuffer"                      # "framebuffer" | "window" | "null"
 width = 1920
 height = 1080
-socket_path = "/run/veha/player.sock"
 fullscreen = true
-title = "veha-player"
-# default_playlist = "/path/to/playlist.json"       # optional
+player_restart_delay_secs = 5
 ```
 
 Note: `api_base_url` is auto-derived from `api_url` (`ws://` → `http://`, path stripped). Not a config field.
@@ -157,7 +157,7 @@ Note: `api_base_url` is auto-derived from `api_url` (`ws://` → `http://`, path
 
 **Deploy dashboard:** `cd veha-dashboard && bun run build && cp -r dist/* ../static/`
 
-**Deploy edge:** `scripts/install-edge.sh` with env vars. Creates systemd services. `--uninstall` to remove.
+**Deploy edge:** Download `veha-edge` binary from GitHub Releases, then `sudo SERVER_URL=... BOARD_ID=... ./veha-edge install`. Use `sudo veha-edge update` to upgrade, `sudo veha-edge uninstall` to remove.
 
 ## Gotchas
 
