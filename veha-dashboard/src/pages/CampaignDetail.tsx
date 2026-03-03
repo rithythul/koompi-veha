@@ -7,7 +7,8 @@ import {
   useCampaignPerformance, useApproveCreative, useRejectCreative,
 } from '../api/campaigns'
 import { useAdvertiser } from '../api/advertisers'
-import { useMedia } from '../api/media'
+import { useMedia, mediaThumbnailUrl, mediaDownloadUrl } from '../api/media'
+import { MediaThumb } from '../components/ui/MediaThumb'
 import { useBookings } from '../api/bookings'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
@@ -252,12 +253,15 @@ export default function CampaignDetail() {
               <p className="text-sm text-text-muted">No creatives. Add media from the library.</p>
             ) : (
               <div className="space-y-2">
-                {creativesList.map((cr) => (
+                {creativesList.map((cr) => {
+                  const media = mediaList.find((m) => m.id === cr.media_id)
+                  return (
                   <div
                     key={cr.id}
                     className="flex items-center justify-between px-3 py-2 bg-bg-primary rounded-md"
                   >
                     <div className="flex items-center gap-3">
+                      <MediaThumb mediaId={cr.media_id} mimeType={media?.mime_type} name={cr.name ?? undefined} />
                       <span className="text-sm text-text-primary">{cr.name ?? 'Untitled'}</span>
                       {cr.duration_secs && (
                         <span className="text-xs text-text-muted">{cr.duration_secs}s</span>
@@ -299,7 +303,8 @@ export default function CampaignDetail() {
                       </Button>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </Card>
@@ -338,15 +343,23 @@ export default function CampaignDetail() {
 
       {/* Media Picker */}
       <Modal open={showMediaPicker} onClose={() => setShowMediaPicker(false)} title="Select Media">
-        <div className="space-y-1 max-h-80 overflow-y-auto">
+        <div className="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto">
           {mediaList.map((media) => (
             <button
               key={media.id}
               onClick={() => handleAddCreative(media.id)}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-bg-elevated transition-colors text-left cursor-pointer"
+              className="rounded-lg border border-border-default hover:border-accent overflow-hidden transition-colors cursor-pointer"
             >
-              <span className="text-sm text-text-primary">{media.name}</span>
-              <span className="text-xs text-text-muted ml-auto">{media.mime_type.split('/')[1]}</span>
+              {media.mime_type.startsWith('image/') ? (
+                <img src={mediaDownloadUrl(media.id)} alt={media.name} className="aspect-video object-cover w-full" loading="lazy" />
+              ) : media.mime_type.startsWith('video/') ? (
+                <img src={mediaThumbnailUrl(media.id)} alt={media.name} className="aspect-video object-cover w-full bg-bg-elevated" loading="lazy" />
+              ) : (
+                <div className="aspect-video bg-bg-elevated flex items-center justify-center">
+                  <Plus className="w-6 h-6 text-text-muted" />
+                </div>
+              )}
+              <p className="text-[10px] text-text-primary truncate px-2 py-1">{media.name}</p>
             </button>
           ))}
         </div>

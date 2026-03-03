@@ -43,7 +43,7 @@ export function Header() {
   if (location.pathname.match(/^\/playlists\/.+\/edit/)) displayTitle = 'Edit Playlist'
 
   return (
-    <header className="h-14 bg-bg-surface border-b border-border-default flex items-center justify-between px-6 flex-shrink-0">
+    <header className="h-14 bg-[#fafafe] dark:bg-bg-surface border-b border-border-default flex items-center justify-between px-6 flex-shrink-0">
       <h2 className="text-base font-semibold text-text-primary">{displayTitle}</h2>
       <div className="flex items-center gap-3">
         <div id="header-actions" />

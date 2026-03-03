@@ -1,138 +1,169 @@
 # CLAUDE.md — koompi-veha
 
+## Working Mode
+
+The user is on the backseat. Claude agents are the driver team: system architect, security expert, fullstack engineering team, UI/UX experts, business analyst, business dev, and product owner. A team of experts that come together to build the project with and for the user. The user verifies occasionally — agents make decisions, drive implementation, and own quality. Be proactive, thorough, and ship production-ready work.
+
 ## Project Overview
 
-koompi-veha is a Rust Digital Out-of-Home (veha) advertising platform for LED billboard fleet management. It wraps FFmpeg for media playback and provides a full advertising workflow: zones, advertisers, campaigns, bookings, schedule resolution, and play-log analytics. It's a Cargo workspace with 7 crates.
+Rust Digital Out-of-Home (DOOH) advertising platform for LED billboard fleet management. FFmpeg-based media playback with full advertising workflow: zones, advertisers, campaigns, bookings, schedule resolution, play-log analytics. Cargo workspace, 7 crates.
+
+## Quick Start
+
+```bash
+# Prerequisites: Rust 1.85+ (edition 2024), FFmpeg 8+ dev libs, bun 1.3+
+# FFmpeg libs: libavcodec, libavformat, libavutil, libswscale, libswresample
+
+cargo build --workspace                           # build all crates
+cargo test --workspace                            # all tests
+cargo test -p veha-core -- decoder                # single test by name
+cd veha-dashboard && bun install && bun run dev   # dashboard dev server (:5173)
+
+# Run API server (auto-creates DB + media dir + default admin on first run)
+RUST_LOG=info cargo run -p veha-api -- --bind 0.0.0.0:3000 --database veha.db --media-dir media
+
+# Deploy dashboard → API server
+cd veha-dashboard && bun run build && cp -r dist/* ../static/
+
+# Deploy edge device (non-interactive)
+sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 bash scripts/install-edge.sh
+
+# Reset dev database (delete and restart — auto-migrates + creates admin)
+rm veha.db && cargo run -p veha-api -- --bind 0.0.0.0:3000
+```
+
+**Environment variables:** `VEHA_API_KEY` (optional agent auth key), `RUST_LOG` (tracing filter).
 
 ## Architecture
 
+Dashboard (React SPA) ↔ REST/WS ↔ API Server (axum + SQLite) ↔ WebSocket ↔ Agent (edge device) ↔ IPC ↔ Player (FFmpeg) ↔ LED/HDMI
+
 ```
-  ┌─────────────────┐     REST/WS      ┌──────────────┐
-  │   Dashboard     │◄────────────────►│   API Server  │
-  │ (veha-dashboard │                  │  (veha-api)   │
-  │  → static/)     │                  │  axum+SQLite  │
-  └─────────────────┘                  └──────┬───────┘
-                                              │ WebSocket
-                                  ┌───────────┼───────────┐
-                                  ▼           ▼           ▼
-                            ┌──────────┐┌──────────┐┌──────────┐
-                            │  Agent   ││  Agent   ││  Agent   │
-                            │(veha-    ││(veha-    ││(veha-    │
-                            │ agent)   ││ agent)   ││ agent)   │
-                            └────┬─────┘└────┬─────┘└────┬─────┘
-                                 │ IPC       │ IPC       │ IPC
-                            ┌────▼─────┐┌────▼─────┐┌────▼─────┐
-                            │  Player  ││  Player  ││  Player  │
-                            │(veha-    ││(veha-    ││(veha-    │
-                            │ player)  ││ player)  ││ player)  │
-                            └────┬─────┘└────┬─────┘└────┬─────┘
-                                 │           │           │
-                            ┌────▼─────┐┌────▼─────┐┌────▼─────┐
-                            │ LED/HDMI ││ LED/HDMI ││ LED/HDMI │
-                            └──────────┘└──────────┘└──────────┘
+veha-core       Library: FFmpeg decoder, frames, playlist, player, PlayerCommand/PlayerStatus
+veha-output     Library: OutputSink backends (window/framebuffer/null, feature-gated)
+veha-cli        Binary: CLI tool (play, upload, board management)
+veha-player     Binary: headless player daemon (tokio + blocking FFmpeg thread)
+veha-api        Binary: REST/WS API server (axum, sqlx, SQLite, inline migrations)
+veha-agent      Binary: edge device agent (WS client, IPC to player, remote terminal via portable-pty)
+veha-dashboard  React SPA (Vite, TypeScript, Tailwind CSS 4, TanStack Query v5, Zustand v5)
+veha-web        WASM browser player (no veha-core dep — reimplements playlist only)
 ```
 
-## Build & Test
+### Data Model
+
+Booking ties Campaign to Board with time range + priority. Resolver merges active bookings into a resolved playlist per board. Creatives reference Media files. PlayLogs track actual playback.
+
+```
+Zone (hierarchical) ──┐
+                      ├──► Board ◄── Group (flat, logical)
+Advertiser → Campaign → Booking ──┘
+                │                     PlayLog ◄── Board
+                └──► Creative → Media
+                                      Alert ◄── Board (screenshot anomaly)
+```
+
+### Key Decisions
+
+- **ffmpeg-next = "8"** — must match system FFmpeg 8.x. Downgrading breaks ABI (symbol mismatches at link time).
+- **OutputSink has no `Send` bound** — minifb::Window is !Send on X11. Sinks run on main thread.
+- **Decoder is Iterator** — `Iterator<Item = Result<VideoFrame>>` for ergonomic frame consumption.
+- **veha-web does NOT depend on veha-core** — FFmpeg can't compile to WASM.
+- **WsMessage is duplicated** in `veha-api/src/ws.rs` and `veha-agent/src/ws_client.rs`. Not shared to avoid circular deps. **Must keep both in sync** — adding a variant to one without the other causes silent deserialization failures.
+- **SQLite migrations are inline** — `include_str!` in `db.rs`, run sequentially at startup. No migration tool.
+- **SPA routing** — `ServeDir` with `.fallback()` returning 200 + index.html. Using `not_found_service` returns 404 status (breaks client-side routing).
+
+## API Reference
+
+Endpoints are defined in `veha-api/src/routes.rs` → `create_router()`. Key patterns:
+
+- **Auth**: `POST /api/auth/login`, `/logout`, `GET /api/auth/me`. Cookie-based sessions (`veha_session`).
+- **RBAC**: `Extension<User>` + `auth::require_role(&user, WRITE_ROLES)`. Roles: admin, operator, viewer.
+- **Board commands**: `POST /api/boards/{id}/command` with `{"command": {"type": "Play"}}` (see `PlayerCommand` in `veha-core/src/command.rs`).
+- **Group commands**: `POST /api/groups/{id}/command` — sends to all boards in group.
+- **Media**: Upload via multipart `POST /api/media`, download `GET /api/media/{id}/download`, thumbnail `GET /api/media/{id}/thumbnail`.
+- **Screenshots**: `GET /api/boards/{id}/screenshot` (latest), `/screenshots` (history, max 60/board), `/screenshot/meta`.
+
+### WebSocket Endpoints
+
+- `/ws/agent` — Agent ↔ API. Protocol: `WsMessage` enum in `ws.rs`. Agent registers with `{type: "Register", board_id, api_key?}`.
+- `/ws/dashboard` — API → Dashboard broadcast. Messages: `BoardStatusChange`, `ScreenshotUpdated`, `AlertCreated`. Triggers TanStack Query cache invalidation.
+- `/ws/terminal/{board_id}` — Remote PTY shell. API injects `session_id` — dashboard clients omit it. All I/O base64-encoded.
+
+### Background Tasks (API Server)
+
+Session cleanup (hourly), campaign expiry (hourly), offline board alerts (5 min), expiring campaign alerts (5 min).
+
+## Edge Device Setup
 
 ```bash
-cargo build --workspace          # build everything
-cargo test --workspace           # run all tests (11 tests)
-cargo build -p veha-player --features framebuffer  # with framebuffer support
-cargo check -p veha-web --target wasm32-unknown-unknown  # check WASM crate
-cd veha-dashboard && bun run build  # build dashboard SPA (output: dist/)
+# Install (creates systemd services: veha-player, veha-agent)
+sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 OUTPUT_BACKEND=framebuffer bash scripts/install-edge.sh
+# Uninstall
+sudo bash scripts/install-edge.sh --uninstall
+# Logs
+journalctl -u veha-agent -f
+journalctl -u veha-player -f
 ```
 
-FFmpeg 8+ dev libraries must be installed (libavcodec, libavformat, libavutil, libswscale, libswresample).
-
-## Workspace Structure
-
-```
-koompi-veha/
-├── veha-core/           # Library: FFmpeg decoder, frames, playlist, player, commands
-│   └── src/
-│       ├── lib.rs       # Re-exports: Decoder, VideoFrame, OutputSink, Player, Playlist, MediaItem
-│       ├── decoder.rs   # FFmpeg video decoder (Iterator<Item = Result<VideoFrame>>)
-│       ├── frame.rs     # VideoFrame (RGB24), extract_rgb24_data() helper
-│       ├── sink.rs      # OutputSink trait (no Send bound)
-│       ├── player.rs    # Player with playlist playback
-│       ├── playlist.rs  # Playlist/MediaItem with JSON serde
-│       ├── image.rs     # Single image decoding via FFmpeg
-│       ├── command.rs   # PlayerCommand enum, PlayerStatus struct
-│       └── error.rs     # Error type (thiserror)
-├── veha-output/         # Library: Output backends
-│   └── src/
-│       ├── window.rs    # minifb window (feature: "window", default)
-│       ├── framebuffer.rs  # /dev/fb0 mmap (feature: "framebuffer")
-│       └── null.rs      # NullSink for testing
-├── veha-cli/            # Binary: CLI tool
-│   └── src/main.rs      # play, play-playlist, boards, media, playlists, upload
-├── veha-player/         # Binary: Headless player daemon
-│   └── src/
-│       ├── main.rs      # Tokio async + blocking FFmpeg thread
-│       ├── config.rs    # TOML config (PlayerConfig)
-│       └── ipc.rs       # Unix socket IPC server (JSON commands)
-├── veha-api/            # Binary: REST/WebSocket API server
-│   ├── migrations/      # SQLite schema (001_init.sql)
-│   └── src/
-│       ├── main.rs      # axum server entry point
-│       ├── routes.rs    # All REST endpoints
-│       ├── db.rs        # SQLite CRUD (sqlx, inline migrations)
-│       ├── models.rs    # API data types (sqlx::FromRow)
-│       ├── auth.rs      # Session auth middleware, RBAC, password hashing
-│       ├── resolver.rs  # Schedule resolver (bookings → playlist)
-│       └── ws.rs        # WebSocket agent + dashboard handler
-├── veha-dashboard/      # React SPA: Admin dashboard (Vite + TypeScript + Tailwind)
-│   └── src/
-│       ├── App.tsx      # Router with lazy-loaded pages
-│       ├── api/         # TanStack Query hooks (boards, media, playlists, etc.)
-│       ├── pages/       # 14 pages (Dashboard, Boards, Campaigns, Users, etc.)
-│       ├── components/  # UI component library + layout
-│       ├── hooks/       # Custom hooks (useBoardStatus WebSocket)
-│       └── types/       # TypeScript API interfaces
-├── veha-agent/          # Binary: Board agent
-│   └── src/
-│       ├── main.rs      # Entry point
-│       ├── config.rs    # TOML config (AgentConfig)
-│       ├── ws_client.rs # WebSocket client with auto-reconnect
-│       └── player_client.rs  # Unix socket IPC client to veha-player
-└── veha-web/            # WASM: Browser playlist player
-    ├── src/lib.rs       # wasm-bindgen vehaPlayer (no veha-core dep)
-    └── demo.html        # Standalone demo page
+Agent config (`/etc/veha/veha-agent.toml`) — all fields with defaults:
+```toml
+board_id = "board-001"                              # required
+api_url = "ws://192.168.1.17:3000/ws/agent"         # required
+api_key = ""                                        # must match server --api-key if set
+board_name = "unnamed-board"
+player_socket = "/run/veha/player.sock"
+report_interval_secs = 10
+screenshot_interval_secs = 60                       # 0 to disable
+cache_dir = "/var/cache/veha"
 ```
 
-## Key Architecture Decisions
+Player config (`/etc/veha/veha-player.toml`) — all fields with defaults:
+```toml
+output_backend = "window"                           # "window" | "framebuffer" | "null"
+width = 1920
+height = 1080
+socket_path = "/run/veha/player.sock"
+fullscreen = true
+title = "veha-player"
+# default_playlist = "/path/to/playlist.json"       # optional
+```
 
-- **ffmpeg-next v8** — matches system FFmpeg 8.0.1 on Arch. Do NOT downgrade.
-- **OutputSink has no `Send` bound** — minifb::Window is not Send on Linux/X11. Player runs sinks on main thread.
-- **Decoder is an Iterator** — `Decoder: Iterator<Item = Result<VideoFrame>>` for ergonomic frame consumption.
-- **Frames are RGB24 internally** — `frame::extract_rgb24_data()` handles FFmpeg stride. Output backends convert (ARGB for window, BGRA for framebuffer).
-- **veha-player uses blocking thread + async tokio** — FFmpeg is synchronous, IPC is async. Shared state via `Arc<Mutex<>>`.
-- **veha-web does NOT depend on veha-core** — FFmpeg can't compile to WASM. The WASM crate reimplements playlist/timing only, using browser-native `<video>` and `<img>`.
-- **WsMessage is duplicated** in veha-api and veha-agent (not shared) to avoid circular dependencies.
-- **SQLite via sqlx** — string-based queries (no compile-time checking), inline migrations in db.rs.
-- **Dashboard is React SPA** — Vite + TypeScript + Tailwind CSS 4, TanStack Query, Zustand. Built to `veha-dashboard/dist/`, served by axum `ServeDir`. Live board status via `/ws/dashboard` WebSocket.
+Note: `api_base_url` is auto-derived from `api_url` (`ws://` → `http://`, path stripped). Not a config field.
+
+## Auth & Security
+
+- **Default admin**: Auto-created if no users exist. Username `admin`, random password printed to server logs. Change immediately.
+- **Agent auth**: Optional. Set `--api-key` or `VEHA_API_KEY` env on server. Agents include it in Register message.
+- **API keys**: CRUD at `/api/api-keys` (admin only).
 
 ## Conventions
 
-- Commit messages follow conventional commits: `feat(scope):`, `fix:`, `test:`, `docs:`
-- Feature-gate optional backends: `#[cfg(feature = "framebuffer")]`
-- Error type is `veha_core::Error` (thiserror), propagated via `veha_core::Result<T>`
-- Configs are TOML files deserialized with serde
-- API uses JSON throughout, `application/json` content type
-- IPC protocol: newline-delimited JSON over Unix socket
+- Commits: conventional commits `feat(scope):`, `fix:`, `test:`, `docs:`. No co-author lines.
+- Feature gates: `#[cfg(feature = "framebuffer")]`
+- Errors: `veha_core::Error` (thiserror) → `veha_core::Result<T>`
+- Configs: TOML + serde. API: JSON + `application/json`. IPC: newline-delimited JSON over Unix socket.
+- Logging: `tracing` crate (`info!`, `warn!`, `error!`).
+- Dashboard: domain-organized components (`components/boards/`, `components/campaigns/`, etc.).
 
 ## Common Tasks
 
-**Add a new output backend:** Create `veha-output/src/mybackend.rs`, implement `OutputSink` trait, add feature gate in Cargo.toml and lib.rs, add match arm in veha-player/src/main.rs.
+**Add API endpoint:** Handler in `routes.rs`, DB fn in `db.rs`, model in `models.rs`, route in `create_router()`. Write endpoints need `Extension<User>` + `auth::require_role(&user, WRITE_ROLES)`.
 
-**Add a new API endpoint:** Add handler in `veha-api/src/routes.rs`, add DB function in `db.rs` if needed, add model in `models.rs`, register route in `create_router()`. For write endpoints, add `Extension<User>` + `auth::require_role(&user, WRITE_ROLES)` for RBAC.
+**Add player command:** Variant in `veha-core/src/command.rs` `PlayerCommand`, handle in `veha-player/src/main.rs`, update `WsMessage` in **both** `veha-api/src/ws.rs` and `veha-agent/src/ws_client.rs`.
 
-**Add a new player command:** Add variant to `PlayerCommand` enum in `veha-core/src/command.rs`, handle it in veha-player/src/main.rs command processing loop, update WsMessage in both veha-api/src/ws.rs and veha-agent/src/ws_client.rs.
+**Add dashboard page:** Page in `pages/`, lazy import + route in `App.tsx`, nav entry in `components/layout/Sidebar.tsx`, API hooks in `api/`.
 
-## Test Fixtures
+**Add output backend:** `veha-output/src/mybackend.rs` implementing `OutputSink`, feature gate in Cargo.toml + lib.rs, match arm in `veha-player/src/main.rs`.
 
-Test media files are in `veha-core/tests/fixtures/`:
-- `test.mp4` — 2s 320x240 H.264 video (generated by FFmpeg testsrc)
-- `test.png` — 320x240 blue PNG image
+**Deploy dashboard:** `cd veha-dashboard && bun run build && cp -r dist/* ../static/`
 
-Tests use `CARGO_MANIFEST_DIR` for robust fixture paths.
+**Deploy edge:** `scripts/install-edge.sh` with env vars. Creates systemd services. `--uninstall` to remove.
+
+## Gotchas
+
+- **Playlist `name` is required**: `LoadPlaylist(json)` needs `{"name": "...", "items": [...], "loop_playlist": bool}`. Missing `name` → silent parse failure on player, no error surfaced.
+- **`house_only` boards**: Resolver returns empty playlist. Must send `LoadPlaylist` directly via `/api/boards/{id}/command`.
+- **Socket path is `/run/veha/player.sock`**: Note the `/veha/` subdirectory. Agent and player must agree.
+- **Config field is `output_backend`**: Not `output`. Old examples may use wrong name.
+- **Terminal relay injects session_id**: Dashboard WS clients don't include `session_id` in messages — the API adds it.
+- **Screenshot CORS**: URLs contain board ID. Cross-origin setups must allow `/api/boards/{id}/screenshot*`.

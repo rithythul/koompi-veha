@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ListVideo, Plus, Pencil, Trash2, ChevronUp, ChevronDown, X } from 'lucide-react'
 import { usePlaylists, useCreatePlaylist, useDeletePlaylist } from '../api/playlists'
-import { useMedia, mediaDownloadUrl } from '../api/media'
+import { useMedia, mediaDownloadUrl, mediaThumbnailUrl } from '../api/media'
+import { Film } from 'lucide-react'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { Modal } from '../components/ui/Modal'
@@ -228,21 +229,30 @@ export default function Playlists() {
         onClose={() => setShowMediaPicker(false)}
         title="Select Media"
       >
-        <div className="space-y-1 max-h-80 overflow-y-auto">
-          {mediaList.map((media) => (
-            <button
-              key={media.id}
-              onClick={() => addMediaItem(media.id)}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-md hover:bg-bg-elevated transition-colors text-left cursor-pointer"
-            >
-              <span className="text-sm text-text-primary">{media.name}</span>
-              <span className="text-xs text-text-muted ml-auto">{media.mime_type.split('/')[1]}</span>
-            </button>
-          ))}
-          {mediaList.length === 0 && (
-            <p className="text-sm text-text-muted text-center py-4">No media uploaded yet.</p>
-          )}
-        </div>
+        {mediaList.length === 0 ? (
+          <p className="text-sm text-text-muted text-center py-8">No media uploaded yet.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto">
+            {mediaList.map((media) => (
+              <button
+                key={media.id}
+                onClick={() => addMediaItem(media.id)}
+                className="rounded-lg border border-border-default hover:border-accent overflow-hidden transition-colors cursor-pointer"
+              >
+                {media.mime_type.startsWith('image/') ? (
+                  <img src={mediaDownloadUrl(media.id)} alt={media.name} className="aspect-video object-cover w-full" loading="lazy" />
+                ) : media.mime_type.startsWith('video/') ? (
+                  <img src={mediaThumbnailUrl(media.id)} alt={media.name} className="aspect-video object-cover w-full bg-bg-elevated" loading="lazy" />
+                ) : (
+                  <div className="aspect-video bg-bg-elevated flex items-center justify-center">
+                    <Film className="w-6 h-6 text-text-muted" />
+                  </div>
+                )}
+                <p className="text-[10px] text-text-primary truncate px-2 py-1">{media.name}</p>
+              </button>
+            ))}
+          </div>
+        )}
       </Modal>
 
       <ConfirmDialog

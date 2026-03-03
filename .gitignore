@@ -21,3 +21,4 @@ veha-dashboard/node_modules/
 veha-dashboard/dist/
 .worktrees/
 /dist/
+.claude.local.md
