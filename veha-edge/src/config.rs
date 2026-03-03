@@ -41,6 +41,8 @@ pub struct EdgeConfig {
     #[serde(default = "default_screenshot_interval")]
     pub screenshot_interval_secs: u64,
 
+    /// Seconds to wait before restarting the player subprocess after a crash.
+    /// Consumed by `run::run()` — not forwarded to AgentConfig or PlayerConfig.
     #[serde(default = "default_restart_delay")]
     pub player_restart_delay_secs: u64,
 }
@@ -48,6 +50,7 @@ pub struct EdgeConfig {
 fn default_name() -> String {
     "unnamed-board".into()
 }
+// Edge devices target framebuffer hardware; "window" is the veha-player dev default.
 fn default_backend() -> String {
     "framebuffer".into()
 }
@@ -131,6 +134,7 @@ api_url = "ws://192.168.1.17:3000/ws/agent"
         assert_eq!(cfg.screenshot_interval_secs, 60);
         assert_eq!(cfg.player_restart_delay_secs, 5);
         assert_eq!(cfg.player_socket, "/run/veha/player.sock");
+        assert_eq!(cfg.fullscreen, true);
     }
 
     #[test]
