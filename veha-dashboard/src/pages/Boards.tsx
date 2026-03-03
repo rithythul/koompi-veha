@@ -325,15 +325,17 @@ export default function Boards() {
   }
 
   const renderTableSection = (sectionBoards: Board[], header?: string) => (
-    <div key={header ?? 'all'}>
+    <>
       {header && (
-        <div className="px-4 py-2 bg-bg-primary border-b border-border-default">
-          <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{header}</span>
-          <span className="text-xs text-text-muted ml-2">({sectionBoards.length})</span>
-        </div>
+        <tr key={`header-${header}`}>
+          <td colSpan={12} className="px-4 py-2 bg-bg-primary border-b border-border-default">
+            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{header}</span>
+            <span className="text-xs text-text-muted ml-2">({sectionBoards.length})</span>
+          </td>
+        </tr>
       )}
       {sectionBoards.map(renderBoardRow)}
-    </div>
+    </>
   )
 
   const renderCardView = (cardBoards: Board[]) => (

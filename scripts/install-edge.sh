@@ -510,6 +510,7 @@ api_url = "$WS_URL"
 api_key = "$API_KEY"
 player_socket = "/run/veha/player.sock"
 report_interval_secs = 10
+screenshot_interval_secs = 10
 cache_dir = "/var/cache/veha"
 AGENTEOF
 
