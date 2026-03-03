@@ -85,7 +85,7 @@ export function PlaylistItemPanel({
         ) : (
           items.map((item, i) => (
             <PlaylistItemRow
-              key={i}
+              key={item.source + i}
               item={item}
               index={i}
               selected={selectedIndex === i}

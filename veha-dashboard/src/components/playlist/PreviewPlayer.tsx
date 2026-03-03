@@ -23,6 +23,8 @@ export const PreviewPlayer = forwardRef<PreviewPlayerHandle, PreviewPlayerProps>
     const [videoProgress, setVideoProgress] = useState(0)
     const [videoDuration, setVideoDuration] = useState(0)
     const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
+    const sequentialRef = useRef(false)
+    useEffect(() => { sequentialRef.current = sequential }, [sequential])
 
     const currentIndex = selectedIndex ?? 0
     const currentItem = items[currentIndex] ?? null
@@ -36,10 +38,10 @@ export const PreviewPlayer = forwardRef<PreviewPlayerHandle, PreviewPlayerProps>
     // Reset on item change
     useEffect(() => {
       setElapsed(0)
-      setPlaying(false)
       setVideoProgress(0)
       setVideoDuration(0)
       clearTimer()
+      if (!sequentialRef.current) setPlaying(false)
     }, [currentIndex])
 
     useEffect(() => { return clearTimer }, [])
