@@ -2,7 +2,7 @@ import { useReducer, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Save, Film } from 'lucide-react'
 import { usePlaylist, useUpdatePlaylist } from '../api/playlists'
-import { useMedia, mediaDownloadUrl } from '../api/media'
+import { useMedia, mediaDownloadUrl, mediaThumbnailUrl } from '../api/media'
 import { Button } from '../components/ui/Button'
 import { Modal } from '../components/ui/Modal'
 import { PageSpinner } from '../components/ui/Spinner'
@@ -10,6 +10,7 @@ import { useToast } from '../components/ui/Toast'
 import { PreviewPlayer } from '../components/playlist/PreviewPlayer'
 import type { PreviewPlayerHandle } from '../components/playlist/PreviewPlayer'
 import { Timeline } from '../components/playlist/Timeline'
+import { PlaylistItemPanel } from '../components/playlist/PlaylistItemPanel'
 import type { MediaItem } from '../types/api'
 
 // ---------- State & Actions ----------
@@ -280,21 +281,43 @@ export default function PlaylistEditor() {
         </Button>
       </div>
 
-      {/* Main content area */}
-      <div className="flex flex-col flex-1 gap-4 min-h-0">
-        {/* Preview Player */}
-        <PreviewPlayer
-          ref={playerRef}
-          items={state.items}
-          selectedIndex={state.selectedIndex}
-          onIndexChange={(i) => dispatch({ type: 'SELECT', index: i })}
-        />
+      {/* Main content area — two columns + bottom timeline */}
+      <div className="flex flex-col flex-1 gap-3 min-h-0">
+        {/* Top row: preview (left) + item panel (right) */}
+        <div className="flex gap-3 flex-1 min-h-0">
+          {/* Preview — left column */}
+          <div className="flex-1 min-w-0">
+            <PreviewPlayer
+              ref={playerRef}
+              items={state.items}
+              selectedIndex={state.selectedIndex}
+              onIndexChange={(i) => dispatch({ type: 'SELECT', index: i })}
+              mediaList={mediaList}
+            />
+          </div>
 
-        {/* Timeline */}
-        <div className="flex-1 min-h-[120px]">
+          {/* Item panel — right column */}
+          <div className="w-72 flex-shrink-0">
+            <PlaylistItemPanel
+              items={state.items}
+              selectedIndex={state.selectedIndex}
+              mediaList={mediaList}
+              onSelect={(i) => dispatch({ type: 'SELECT', index: i })}
+              onRemove={(i) => dispatch({ type: 'REMOVE_ITEM', index: i })}
+              onDuplicate={(i) => dispatch({ type: 'DUPLICATE', index: i })}
+              onDurationChange={(i, secs) => dispatch({ type: 'SET_DURATION', index: i, secs })}
+              onReorder={(from, to) => dispatch({ type: 'REORDER', fromIndex: from, toIndex: to })}
+              onAddMedia={() => setShowMediaPicker(true)}
+            />
+          </div>
+        </div>
+
+        {/* Bottom: timeline strip */}
+        <div className="flex-shrink-0">
           <Timeline
             items={state.items}
             selectedIndex={state.selectedIndex}
+            mediaList={mediaList}
             onSelect={(i) => dispatch({ type: 'SELECT', index: i })}
             onReorder={(from, to) => dispatch({ type: 'REORDER', fromIndex: from, toIndex: to })}
             onDurationChange={(i, secs) => dispatch({ type: 'SET_DURATION', index: i, secs })}
@@ -310,26 +333,45 @@ export default function PlaylistEditor() {
         {mediaList.length === 0 ? (
           <p className="text-sm text-text-muted text-center py-8">No media uploaded yet.</p>
         ) : (
-          <div className="grid grid-cols-3 gap-2 max-h-80 overflow-y-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-96 overflow-y-auto pr-1">
             {mediaList.map((media) => (
               <button
                 key={media.id}
                 onClick={() => addMediaItem(media.id)}
-                className="rounded-lg border border-border-default hover:border-accent overflow-hidden transition-colors cursor-pointer"
+                className="group rounded-lg border border-border-default hover:border-accent overflow-hidden transition-all cursor-pointer text-left"
               >
-                {media.mime_type.startsWith('image/') ? (
-                  <img
-                    src={mediaDownloadUrl(media.id)}
-                    alt={media.name}
-                    className="aspect-video object-cover w-full"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="aspect-video bg-bg-elevated flex items-center justify-center">
-                    <Film className="w-6 h-6 text-text-muted" />
-                  </div>
-                )}
-                <p className="text-[10px] text-text-primary truncate px-2 py-1">{media.name}</p>
+                <div className="aspect-video bg-bg-elevated overflow-hidden relative">
+                  {media.mime_type.startsWith('image/') ? (
+                    <img
+                      src={mediaDownloadUrl(media.id)}
+                      alt={media.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      loading="lazy"
+                    />
+                  ) : media.mime_type.startsWith('video/') ? (
+                    <img
+                      src={mediaThumbnailUrl(media.id)}
+                      alt={media.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Film className="w-8 h-8 text-text-muted" />
+                    </div>
+                  )}
+                  {media.mime_type.startsWith('video/') && (
+                    <div className="absolute bottom-1 right-1 bg-black/70 rounded px-1 py-0.5">
+                      <Film className="w-3 h-3 text-white/80" />
+                    </div>
+                  )}
+                </div>
+                <div className="px-2 py-1.5">
+                  <p className="text-xs text-text-primary truncate font-medium">{media.name}</p>
+                  <p className="text-[10px] text-text-muted mt-0.5">
+                    {(media.size / 1024 / 1024).toFixed(1)} MB
+                  </p>
+                </div>
               </button>
             ))}
           </div>
