@@ -152,6 +152,7 @@ fn make_status(ms: &MediaState) -> PlayerStatus {
         is_muted: *lock_or_default(&ms.is_muted),
         playback_speed: *lock_or_default(&ms.playback_speed),
         is_fullscreen: *lock_or_default(&ms.is_fullscreen),
+        system_metrics: None,
     }
 }
 

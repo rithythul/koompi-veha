@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Play, Pause, Square, SkipForward, SkipBack, RotateCcw, Monitor, Pencil, Camera, Film, Radio } from 'lucide-react'
-import { useBoard, useUpdateBoard, useSendBoardCommand, useBoardResolvedSchedule, useBoardScreenshotMeta, useBoardScreenshots } from '../api/boards'
+import { ArrowLeft, Play, Pause, SkipForward, SkipBack, Monitor, Pencil, Camera, Film, Radio, TerminalSquare, RefreshCw, Power, Cpu, HardDrive, Thermometer, Clock } from 'lucide-react'
+
+const BoardTerminal = lazy(() => import('../components/boards/BoardTerminal'))
+import { useBoard, useUpdateBoard, useSendBoardCommand, useBoardResolvedSchedule, useBoardScreenshotMeta, useBoardScreenshots, useLiveStatus, usePingBoard, useRestartAgent, useRestartPlayer } from '../api/boards'
 import { usePlayLogs } from '../api/playlogs'
 import { useZones } from '../api/zones'
 import { useGroups } from '../api/groups'
@@ -12,6 +14,7 @@ import { Modal } from '../components/ui/Modal'
 import { Input } from '../components/ui/Input'
 import { Select } from '../components/ui/Select'
 import { PageSpinner } from '../components/ui/Spinner'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { useToast } from '../components/ui/Toast'
 import { formatRelativeTime, formatDateTime, formatDuration } from '../lib/utils'
 import { SELL_MODES } from '../lib/constants'
@@ -29,23 +32,23 @@ export default function BoardDetail() {
   const { data: screenshotsData } = useBoardScreenshots(id ?? '')
   const sendCommand = useSendBoardCommand(id ?? '')
   const updateBoard = useUpdateBoard(id ?? '')
+  const { data: liveStatusMap } = useLiveStatus()
+  const pingMutation = usePingBoard()
+  const restartAgentMutation = useRestartAgent()
+  const restartPlayerMutation = useRestartPlayer()
   const toast = useToast()
+  const [pingResult, setPingResult] = useState<string | null>(null)
+  const [restartTarget, setRestartTarget] = useState<'agent' | 'player' | null>(null)
   const [showEdit, setShowEdit] = useState(false)
   const [editData, setEditData] = useState<UpdateBoard>({})
+  const [showTerminal, setShowTerminal] = useState(false)
+  const [playerState, setPlayerState] = useState<'idle' | 'playing' | 'paused'>('idle')
+  const [showControls, setShowControls] = useState(false)
   const [timelapseMode, setTimelapseMode] = useState(false)
   const [timelapseIndex, setTimelapseIndex] = useState(0)
   const [timelapsePlaying, setTimelapsePlaying] = useState(false)
   const timelapseTimer = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  if (isLoading || !board) return <PageSpinner />
-
-  const zoneList = zones ?? []
-  const groupList = groupsData?.data ?? []
-  const zoneName = zoneList.find((z) => z.id === board.zone_id)?.name ?? '--'
-  const groupName = groupList.find((g) => g.id === board.group_id)?.name ?? '--'
-  const isOnline = board.status === 'online'
-  const logs = logsData?.data ?? []
-  const resolvedItems = schedule?.items ?? []
+  const [screenshotKey, setScreenshotKey] = useState(0)
 
   // Timelapse: screenshots ordered oldest-first for slider
   const timelapseFrames = [...(screenshotsData?.screenshots ?? [])].reverse()
@@ -65,36 +68,60 @@ export default function BoardDetail() {
     timelapseTimer.current = setInterval(() => {
       setTimelapseIndex((prev) => {
         if (prev >= totalFrames - 1) {
-          // Stop at end
           stopTimelapse()
           return prev
         }
         return prev + 1
       })
-    }, 500) // 2fps
+    }, 500)
   }, [totalFrames, stopTimelapse])
 
-  // Cleanup timer on unmount
+  // Auto-refresh: bump screenshotKey when screenshotMeta changes
+  useEffect(() => {
+    if (screenshotMeta?.timestamp) {
+      setScreenshotKey((k) => k + 1)
+    }
+  }, [screenshotMeta?.timestamp])
+
   useEffect(() => {
     return () => {
       if (timelapseTimer.current) clearInterval(timelapseTimer.current)
     }
   }, [])
 
-  // Reset index when switching modes or when frames change
   useEffect(() => {
     if (timelapseMode && totalFrames > 0) {
       setTimelapseIndex(0)
     }
   }, [timelapseMode, totalFrames])
 
+  if (isLoading || !board) return <PageSpinner />
+
+  const zoneList = zones ?? []
+  const groupList = groupsData?.data ?? []
+  const zoneName = zoneList.find((z) => z.id === board.zone_id)?.name ?? '--'
+  const groupName = groupList.find((g) => g.id === board.group_id)?.name ?? '--'
+  const isOnline = board.status === 'online'
+  const logs = logsData?.data ?? []
+  const resolvedItems = schedule?.items ?? []
+
   const handleCommand = async (command: PlayerCommand) => {
     try {
       await sendCommand.mutateAsync(command)
-      toast.success(`Command sent: ${command.type}`)
+      // Track player state locally for toggle behavior
+      if (command.type === 'Play' || command.type === 'Resume') setPlayerState('playing')
+      else if (command.type === 'Pause') setPlayerState('paused')
+      else if (command.type === 'Stop') setPlayerState('idle')
+      else if (command.type === 'Next' || command.type === 'Previous') setPlayerState('playing')
     } catch (err: any) {
       toast.error(err.message)
     }
+  }
+
+  const togglePlayPause = () => {
+    if (playerState === 'playing') handleCommand({ type: 'Pause' })
+    else if (playerState === 'paused') handleCommand({ type: 'Resume' })
+    else handleCommand({ type: 'Play' })
   }
 
   const openEdit = () => {
@@ -123,17 +150,41 @@ export default function BoardDetail() {
     }
   }
 
-  const cmdBtn = (label: string, icon: React.ReactNode, command: PlayerCommand) => (
-    <Button
-      variant="secondary"
-      size="sm"
-      onClick={() => handleCommand(command)}
-      disabled={!isOnline || sendCommand.isPending}
-      title={label}
-    >
-      {icon}
-    </Button>
-  )
+  const live = liveStatusMap?.[id ?? '']
+  const metrics = live?.system_metrics
+
+  const handlePing = async () => {
+    if (!id) return
+    try {
+      const result = await pingMutation.mutateAsync(id)
+      setPingResult(result.ok ? `${result.latency_ms}ms` : 'Unreachable')
+      setTimeout(() => setPingResult(null), 5000)
+    } catch {
+      setPingResult('Failed')
+      setTimeout(() => setPingResult(null), 5000)
+    }
+  }
+
+  const handleRestart = async () => {
+    if (!id || !restartTarget) return
+    try {
+      if (restartTarget === 'agent') await restartAgentMutation.mutateAsync(id)
+      else await restartPlayerMutation.mutateAsync(id)
+      toast.success(`Restart ${restartTarget} command sent`)
+    } catch {
+      toast.error(`Failed to restart ${restartTarget}`)
+    } finally {
+      setRestartTarget(null)
+    }
+  }
+
+  const formatUptime = (secs: number) => {
+    const d = Math.floor(secs / 86400)
+    const h = Math.floor((secs % 86400) / 3600)
+    if (d > 0) return `${d}d ${h}h`
+    const m = Math.floor((secs % 3600) / 60)
+    return h > 0 ? `${h}h ${m}m` : `${m}m`
+  }
 
   return (
     <div className="animate-fade-in">
@@ -155,14 +206,318 @@ export default function BoardDetail() {
         <Badge variant={isOnline ? 'online' : 'offline'} dot className="ml-2">
           {board.status}
         </Badge>
-        <Button variant="secondary" size="sm" onClick={openEdit} className="ml-auto">
-          <Pencil className="w-3.5 h-3.5" /> Edit
-        </Button>
+        <div className="flex items-center gap-2 ml-auto">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowTerminal(!showTerminal)}
+            disabled={!isOnline}
+            title={isOnline ? 'Open remote terminal' : 'Board must be online'}
+          >
+            <TerminalSquare className="w-3.5 h-3.5" /> Terminal
+          </Button>
+          <Button variant="secondary" size="sm" onClick={openEdit}>
+            <Pencil className="w-3.5 h-3.5" /> Edit
+          </Button>
+        </div>
       </div>
+
+      {/* Remote Terminal Overlay */}
+      {showTerminal && id && (
+        <Suspense fallback={
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="text-[#484f58] text-sm">Loading terminal...</div>
+          </div>
+        }>
+          <BoardTerminal boardId={id} onClose={() => setShowTerminal(false)} />
+        </Suspense>
+      )}
+
+      {/* Status Hero */}
+      <Card padding={false} className="mb-4">
+        <div className="px-4 py-3 border-b border-border-default flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${
+              !live || live.connectivity === 'offline' ? 'bg-red-500'
+              : live.player_state === 'Playing' ? 'bg-emerald-500 animate-pulse'
+              : live.player_state === 'unreachable' ? 'bg-amber-500'
+              : 'bg-emerald-500'
+            }`} />
+            <span className="text-sm font-medium text-text-primary">
+              {!live ? (isOnline ? 'Connected' : 'Offline')
+               : live.connectivity === 'offline' ? 'Offline'
+               : live.player_state === 'Playing' ? `Playing: ${live.current_item?.split('/').pop() ?? 'media'}`
+               : live.player_state === 'unreachable' ? 'Degraded — player unreachable'
+               : `${live.player_state}`}
+            </span>
+            {live?.playlist_name && (
+              <span className="text-xs text-text-muted">({live.playlist_name})</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handlePing}
+              loading={pingMutation.isPending}
+              disabled={!isOnline}
+            >
+              <RefreshCw className="w-3 h-3" />
+              {pingResult ? pingResult : 'Ping'}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setRestartTarget('agent')}
+              disabled={!isOnline}
+            >
+              <Power className="w-3 h-3" /> Restart Agent
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setRestartTarget('player')}
+              disabled={!isOnline}
+            >
+              <Power className="w-3 h-3" /> Restart Player
+            </Button>
+          </div>
+        </div>
+        {/* Metrics row */}
+        {metrics && (
+          <div className="px-4 py-3 flex items-center gap-6 text-xs">
+            <div className="flex items-center gap-1.5">
+              <Cpu className="w-3.5 h-3.5 text-text-muted" />
+              <div className="w-16 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${metrics.cpu_percent >= 85 ? 'bg-red-500' : metrics.cpu_percent >= 60 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                  style={{ width: `${Math.min(metrics.cpu_percent, 100)}%` }}
+                />
+              </div>
+              <span className="text-text-secondary font-mono">{metrics.cpu_percent.toFixed(1)}%</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5 text-text-muted" />
+              <span className="text-text-secondary font-mono">{metrics.memory_used_mb}/{metrics.memory_total_mb} MB</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <HardDrive className="w-3.5 h-3.5 text-text-muted" />
+              <span className="text-text-secondary font-mono">{metrics.disk_used_gb.toFixed(1)}/{metrics.disk_total_gb.toFixed(1)} GB</span>
+            </div>
+            {metrics.temperature_celsius != null && (
+              <div className="flex items-center gap-1.5">
+                <Thermometer className="w-3.5 h-3.5 text-text-muted" />
+                <span className={`font-mono ${metrics.temperature_celsius >= 70 ? 'text-red-500' : 'text-text-secondary'}`}>
+                  {metrics.temperature_celsius.toFixed(0)}&deg;C
+                </span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-text-muted" />
+              <span className="text-text-secondary">{formatUptime(metrics.uptime_secs)}</span>
+            </div>
+            {metrics.agent_version && (
+              <span className="text-text-muted ml-auto">v{metrics.agent_version}</span>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Restart Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!restartTarget}
+        onClose={() => setRestartTarget(null)}
+        onConfirm={handleRestart}
+        title={`Restart ${restartTarget === 'agent' ? 'Agent' : 'Player'}`}
+        message={`Are you sure you want to restart the ${restartTarget} on ${board.name}? The board may be temporarily unavailable.`}
+        confirmLabel="Restart"
+        loading={restartAgentMutation.isPending || restartPlayerMutation.isPending}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Left column */}
         <div className="lg:col-span-2 space-y-4">
+          {/* Live Preview — merged screenshot + controls */}
+          <Card
+            title="Live Preview"
+            action={
+              screenshotMeta && totalFrames > 1 ? (
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant={!timelapseMode ? 'primary' : 'secondary'}
+                    size="sm"
+                    onClick={() => { stopTimelapse(); setTimelapseMode(false) }}
+                    className="!py-0.5 !px-2 !text-[11px]"
+                  >
+                    <Radio className="w-3 h-3" /> Live
+                  </Button>
+                  <Button
+                    variant={timelapseMode ? 'primary' : 'secondary'}
+                    size="sm"
+                    onClick={() => setTimelapseMode(true)}
+                    className="!py-0.5 !px-2 !text-[11px]"
+                  >
+                    <Film className="w-3 h-3" /> Timelapse
+                  </Button>
+                </div>
+              ) : undefined
+            }
+          >
+            {/* Screenshot area */}
+            {timelapseMode && totalFrames > 0 ? (
+              <div>
+                <div className="relative rounded-md overflow-hidden bg-black">
+                  <img
+                    src={timelapseFrames[timelapseIndex]?.url}
+                    alt={`Screenshot frame ${timelapseIndex + 1}`}
+                    className="w-full h-auto"
+                  />
+                </div>
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    {timelapsePlaying ? (
+                      <Button variant="secondary" size="sm" onClick={stopTimelapse}>
+                        <Pause className="w-3.5 h-3.5" />
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={startTimelapse}
+                        disabled={totalFrames < 2}
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                    <input
+                      type="range"
+                      min={0}
+                      max={totalFrames - 1}
+                      value={timelapseIndex}
+                      onChange={(e) => {
+                        stopTimelapse()
+                        setTimelapseIndex(Number(e.target.value))
+                      }}
+                      className="flex-1 accent-accent"
+                    />
+                    <span className="text-xs text-text-muted font-mono min-w-[4rem] text-right">
+                      {timelapseIndex + 1} / {totalFrames}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-text-muted">
+                      {timelapseFrames[timelapseIndex]
+                        ? formatRelativeTime(timelapseFrames[timelapseIndex].timestamp)
+                        : '--'}
+                    </span>
+                    <span className="text-xs text-text-muted">
+                      {screenshotMeta?.total_screenshots ?? totalFrames} stored
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : screenshotMeta ? (
+              <div
+                className="relative rounded-md overflow-hidden bg-black group/preview cursor-pointer"
+                onMouseEnter={() => setShowControls(true)}
+                onMouseLeave={() => setShowControls(false)}
+                onClick={isOnline ? togglePlayPause : undefined}
+              >
+                <img
+                  src={`/api/boards/${id}/screenshot?t=${encodeURIComponent(screenshotMeta.timestamp)}&k=${screenshotKey}`}
+                  alt="Board screenshot"
+                  className="w-full h-auto"
+                />
+                {/* Hover overlay with controls */}
+                <div className={`absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent transition-opacity duration-200 ${showControls && isOnline ? 'opacity-100' : 'opacity-0'}`}>
+                  {/* Center play/pause */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-14 h-14 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center transition-transform group-hover/preview:scale-110">
+                      {playerState === 'playing'
+                        ? <Pause className="w-7 h-7 text-white" />
+                        : <Play className="w-7 h-7 text-white ml-1" />}
+                    </div>
+                  </div>
+                  {/* Bottom bar */}
+                  <div className="absolute bottom-0 inset-x-0 p-3 flex items-center justify-between">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleCommand({ type: 'Previous' }) }}
+                        disabled={sendCommand.isPending}
+                        className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/15 transition-colors disabled:opacity-40"
+                        title="Previous"
+                      >
+                        <SkipBack className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleCommand({ type: 'Next' }) }}
+                        disabled={sendCommand.isPending}
+                        className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/15 transition-colors disabled:opacity-40"
+                        title="Next"
+                      >
+                        <SkipForward className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleCommand({ type: 'TakeScreenshot', data: `/tmp/veha-screenshot-${id}.jpg` }) }}
+                      disabled={sendCommand.isPending}
+                      className="p-1.5 rounded-full text-white/80 hover:text-white hover:bg-white/15 transition-colors disabled:opacity-40"
+                      title="Capture screenshot"
+                    >
+                      <Camera className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                {/* Offline overlay */}
+                {!isOnline && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                    <span className="text-white/80 text-sm font-medium">Board Offline</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div
+                className="relative rounded-md overflow-hidden bg-black group/preview cursor-pointer"
+                onMouseEnter={() => setShowControls(true)}
+                onMouseLeave={() => setShowControls(false)}
+                onClick={isOnline ? togglePlayPause : undefined}
+              >
+                <div className="aspect-video flex flex-col items-center justify-center">
+                  <Monitor className="w-8 h-8 text-white/20 mb-2" />
+                  <p className="text-sm text-white/40">
+                    {isOnline ? 'No preview available' : 'Board Offline'}
+                  </p>
+                  {isOnline && (
+                    <p className="text-xs text-white/25 mt-1">Assign a playlist to start</p>
+                  )}
+                </div>
+                {/* Hover overlay */}
+                {isOnline && (
+                  <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${showControls ? 'opacity-100' : 'opacity-0'}`}>
+                    <div className="w-14 h-14 rounded-full bg-white/15 backdrop-blur-sm flex items-center justify-center">
+                      <Play className="w-7 h-7 text-white/70 ml-1" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Status line */}
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-xs text-text-muted">
+                {screenshotMeta
+                  ? <>Last updated: {formatRelativeTime(screenshotMeta.timestamp)}</>
+                  : 'No screenshots yet'}
+                {screenshotMeta?.total_screenshots != null && !timelapseMode && (
+                  <> &middot; {screenshotMeta.total_screenshots} stored</>
+                )}
+              </span>
+              {!isOnline && !timelapseMode && (
+                <span className="text-xs text-text-muted">Offline</span>
+              )}
+            </div>
+          </Card>
+
           {/* Board Info */}
           <Card title="Board Info">
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
@@ -209,148 +564,6 @@ export default function BoardDetail() {
                 </p>
               </div>
             </div>
-          </Card>
-
-          {/* Player Controls */}
-          <Card title="Player Controls">
-            <div className="flex items-center gap-2">
-              {cmdBtn('Play', <Play className="w-4 h-4" />, { type: 'Play' })}
-              {cmdBtn('Pause', <Pause className="w-4 h-4" />, { type: 'Pause' })}
-              {cmdBtn('Resume', <RotateCcw className="w-4 h-4" />, { type: 'Resume' })}
-              {cmdBtn('Stop', <Square className="w-4 h-4" />, { type: 'Stop' })}
-              <div className="w-px h-6 bg-border-default mx-1" />
-              {cmdBtn('Previous', <SkipBack className="w-4 h-4" />, { type: 'Previous' })}
-              {cmdBtn('Next', <SkipForward className="w-4 h-4" />, { type: 'Next' })}
-            </div>
-            {!isOnline && (
-              <p className="text-xs text-text-muted mt-2">Board is offline. Commands cannot be sent.</p>
-            )}
-          </Card>
-
-          {/* Live View / Timelapse */}
-          <Card
-            title={timelapseMode ? 'Timelapse' : 'Live View'}
-            action={
-              screenshotMeta && totalFrames > 1 ? (
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant={!timelapseMode ? 'primary' : 'secondary'}
-                    size="sm"
-                    onClick={() => { stopTimelapse(); setTimelapseMode(false) }}
-                    className="!py-0.5 !px-2 !text-[11px]"
-                  >
-                    <Radio className="w-3 h-3" /> Live
-                  </Button>
-                  <Button
-                    variant={timelapseMode ? 'primary' : 'secondary'}
-                    size="sm"
-                    onClick={() => setTimelapseMode(true)}
-                    className="!py-0.5 !px-2 !text-[11px]"
-                  >
-                    <Film className="w-3 h-3" /> Timelapse
-                  </Button>
-                </div>
-              ) : undefined
-            }
-          >
-            {timelapseMode && totalFrames > 0 ? (
-              <div>
-                <div className="relative rounded-md overflow-hidden bg-black">
-                  <img
-                    src={timelapseFrames[timelapseIndex]?.url}
-                    alt={`Screenshot frame ${timelapseIndex + 1}`}
-                    className="w-full h-auto"
-                  />
-                </div>
-                <div className="mt-3 space-y-2">
-                  {/* Controls */}
-                  <div className="flex items-center gap-2">
-                    {timelapsePlaying ? (
-                      <Button variant="secondary" size="sm" onClick={stopTimelapse}>
-                        <Pause className="w-3.5 h-3.5" />
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={startTimelapse}
-                        disabled={totalFrames < 2}
-                      >
-                        <Play className="w-3.5 h-3.5" />
-                      </Button>
-                    )}
-                    <input
-                      type="range"
-                      min={0}
-                      max={totalFrames - 1}
-                      value={timelapseIndex}
-                      onChange={(e) => {
-                        stopTimelapse()
-                        setTimelapseIndex(Number(e.target.value))
-                      }}
-                      className="flex-1 accent-accent"
-                    />
-                    <span className="text-xs text-text-muted font-mono min-w-[4rem] text-right">
-                      {timelapseIndex + 1} / {totalFrames}
-                    </span>
-                  </div>
-                  {/* Timestamp display */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-text-muted">
-                      {timelapseFrames[timelapseIndex]
-                        ? formatRelativeTime(timelapseFrames[timelapseIndex].timestamp)
-                        : '--'}
-                    </span>
-                    <span className="text-xs text-text-muted">
-                      {screenshotMeta?.total_screenshots ?? totalFrames} stored
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ) : screenshotMeta ? (
-              <div>
-                <div className="relative rounded-md overflow-hidden bg-black">
-                  <img
-                    src={`/api/boards/${id}/screenshot?t=${encodeURIComponent(screenshotMeta.timestamp)}`}
-                    alt="Board screenshot"
-                    className="w-full h-auto"
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-3">
-                  <span className="text-xs text-text-muted">
-                    Last capture: {formatRelativeTime(screenshotMeta.timestamp)}
-                    {screenshotMeta.total_screenshots != null && (
-                      <> &middot; {screenshotMeta.total_screenshots} stored</>
-                    )}
-                  </span>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleCommand({ type: 'TakeScreenshot', data: `/tmp/veha-screenshot-${id}.jpg` })}
-                    disabled={!isOnline || sendCommand.isPending}
-                  >
-                    <Camera className="w-3.5 h-3.5" /> Capture Now
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <Monitor className="w-8 h-8 text-text-muted mx-auto mb-2" />
-                <p className="text-sm text-text-muted">No screenshot available.</p>
-                <p className="text-xs text-text-muted mt-1">Board must be online to capture screenshots.</p>
-                {isOnline && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="mt-3"
-                    onClick={() => handleCommand({ type: 'TakeScreenshot', data: `/tmp/veha-screenshot-${id}.jpg` })}
-                    disabled={sendCommand.isPending}
-                  >
-                    <Camera className="w-3.5 h-3.5" /> Capture Now
-                  </Button>
-                )}
-              </div>
-            )}
           </Card>
 
           {/* Resolved Schedule */}

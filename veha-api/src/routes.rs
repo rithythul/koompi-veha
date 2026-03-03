@@ -9,7 +9,7 @@ use axum::{
     routing::{delete, get, post, put},
 };
 use tokio::io::AsyncWriteExt;
-use tower_http::services::{ServeDir, ServeFile};
+use tower_http::services::ServeDir;
 use uuid::Uuid;
 
 use serde::Deserialize;
@@ -38,6 +38,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/boards/{id}/screenshot/meta", get(get_board_screenshot_meta))
         .route("/api/boards/{id}/screenshots", get(list_board_screenshots))
         .route("/api/boards/{id}/screenshots/{timestamp_ms}", get(get_board_screenshot_by_ts))
+        // Board Fleet Management
+        .route("/api/boards/live-status", get(get_live_status))
+        .route("/api/boards/bulk-action", post(bulk_action_handler))
+        .route("/api/boards/{id}/ping", post(ping_board_handler))
+        .route("/api/boards/{id}/restart-agent", post(restart_agent_handler))
+        .route("/api/boards/{id}/restart-player", post(restart_player_handler))
         // Groups
         .route("/api/groups", get(list_groups).post(create_group))
         .route("/api/groups/{id}", put(update_group_handler).delete(delete_group))
@@ -124,6 +130,7 @@ pub fn create_router(state: AppState) -> Router {
         // WebSocket
         .route("/ws/agent", get(ws_agent_handler))
         .route("/ws/dashboard", get(ws_dashboard_handler))
+        .route("/ws/terminal/{board_id}", get(ws_terminal_handler))
         // Auth middleware — applied to all routes above
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -136,12 +143,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/media/{id}/thumbnail", get(media_thumbnail))
         .with_state(state)
         // Serve the web dashboard as static files (fallback for non-API routes)
-        // SPA fallback: serve index.html for any route not matching a static file
-        .fallback_service(
-            ServeDir::new("static")
-                .append_index_html_on_directories(true)
-                .not_found_service(ServeFile::new("static/index.html")),
-        )
+        // SPA fallback: serve index.html with 200 for any route not matching a static file
+        .fallback_service(ServeDir::new("static").append_index_html_on_directories(true).fallback(
+            get(|| async {
+                let body = tokio::fs::read("static/index.html").await.unwrap_or_default();
+                (StatusCode::OK, [("content-type", "text/html")], body)
+            }),
+        ))
 }
 
 // ── Health ──────────────────────────────────────────────────────────────
@@ -330,6 +338,74 @@ async fn send_board_command(
     } else {
         (StatusCode::NOT_FOUND, "Board not connected").into_response()
     }
+}
+
+// ── Fleet Management ──────────────────────────────────────────────────
+
+async fn get_live_status(
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let store = state.board_status.read().await;
+    Json(store.clone())
+}
+
+async fn ping_board_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, WRITE_ROLES) { return e.into_response(); }
+    match ws::ping_board(&state.agents, &id).await {
+        Some(latency_ms) => Json(serde_json::json!({"ok": true, "latency_ms": latency_ms})).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({"ok": false, "error": "Board not connected"}))).into_response(),
+    }
+}
+
+async fn restart_agent_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+    let sent = ws::send_command_msg_to_board(&state.agents, &id, &ws::WsMessage::RestartAgent).await;
+    if sent { StatusCode::OK.into_response() }
+    else { StatusCode::NOT_FOUND.into_response() }
+}
+
+async fn restart_player_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+    let sent = ws::send_command_msg_to_board(&state.agents, &id, &ws::WsMessage::RestartPlayer).await;
+    if sent { StatusCode::OK.into_response() }
+    else { StatusCode::NOT_FOUND.into_response() }
+}
+
+#[derive(Deserialize)]
+struct BulkActionRequest {
+    board_ids: Vec<String>,
+    action: String,
+}
+
+async fn bulk_action_handler(
+    Extension(user): Extension<User>,
+    State(state): State<AppState>,
+    Json(req): Json<BulkActionRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = auth::require_role(&user, ADMIN_ROLES) { return e.into_response(); }
+    let mut results = serde_json::Map::new();
+    for id in &req.board_ids {
+        let ok = match req.action.as_str() {
+            "ping" => ws::ping_board(&state.agents, id).await.is_some(),
+            "restart_agent" => ws::send_command_msg_to_board(&state.agents, id, &ws::WsMessage::RestartAgent).await,
+            "restart_player" => ws::send_command_msg_to_board(&state.agents, id, &ws::WsMessage::RestartPlayer).await,
+            _ => false,
+        };
+        results.insert(id.clone(), serde_json::Value::Bool(ok));
+    }
+    Json(serde_json::Value::Object(results)).into_response()
 }
 
 // ── Screenshots ────────────────────────────────────────────────────────
@@ -1096,6 +1172,8 @@ async fn ws_agent_handler(
             state.screenshots,
             state.media_dir.clone(),
             state.analysis,
+            state.terminal_sessions,
+            state.board_status,
         )
     })
 }
@@ -1105,6 +1183,16 @@ async fn ws_dashboard_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |socket| ws::handle_dashboard_socket(socket, state.dashboards))
+}
+
+async fn ws_terminal_handler(
+    ws: WebSocketUpgrade,
+    Path(board_id): Path<String>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| {
+        ws::handle_terminal_socket(socket, board_id, state.agents, state.terminal_sessions)
+    })
 }
 
 // ── Zones ───────────────────────────────────────────────────────────────

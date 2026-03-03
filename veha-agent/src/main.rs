@@ -4,7 +4,9 @@ use clap::Parser;
 use tracing::{error, info};
 
 mod config;
+mod metrics;
 mod player_client;
+mod terminal;
 mod ws_client;
 
 use config::AgentConfig;

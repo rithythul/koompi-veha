@@ -19,10 +19,12 @@ pub struct AppState {
     pub db: SqlitePool,
     pub agents: ws::AgentConnections,
     pub dashboards: ws::DashboardConnections,
+    pub terminal_sessions: ws::TerminalSessions,
     pub media_dir: String,
     pub api_key: String,
     pub screenshots: ws::ScreenshotStore,
     pub analysis: screenshot_analysis::AnalysisStore,
+    pub board_status: ws::BoardStatusStore,
 }
 
 #[derive(Parser)]
@@ -109,10 +111,12 @@ async fn main() {
         db: db.clone(),
         agents: ws::AgentConnections::default(),
         dashboards: ws::DashboardConnections::default(),
+        terminal_sessions: ws::TerminalSessions::default(),
         media_dir: args.media_dir,
         api_key: args.api_key,
         screenshots,
         analysis: screenshot_analysis::AnalysisStore::default(),
+        board_status: ws::BoardStatusStore::default(),
     };
 
     // Configure CORS

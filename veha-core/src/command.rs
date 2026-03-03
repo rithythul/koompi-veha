@@ -60,6 +60,8 @@ pub struct PlayerStatus {
     pub playback_speed: f32,
     #[serde(default)]
     pub is_fullscreen: bool,
+    #[serde(default)]
+    pub system_metrics: Option<SystemMetrics>,
 }
 
 fn default_volume() -> f32 {
@@ -67,4 +69,17 @@ fn default_volume() -> f32 {
 }
 fn default_speed() -> f32 {
     1.0
+}
+
+/// System-level metrics from the edge device.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemMetrics {
+    pub cpu_percent: f32,
+    pub memory_used_mb: u32,
+    pub memory_total_mb: u32,
+    pub disk_used_gb: f32,
+    pub disk_total_gb: f32,
+    pub temperature_celsius: Option<f32>,
+    pub uptime_secs: u64,
+    pub agent_version: String,
 }

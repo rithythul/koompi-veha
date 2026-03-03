@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import type { BoardLiveStatus } from '../types/api'
 
 /**
  * Connects to the /ws/dashboard WebSocket endpoint and invalidates
@@ -34,7 +35,32 @@ export function useBoardStatus() {
         try {
           const data = JSON.parse(event.data)
           if (data.type === 'BoardStatusChange') {
-            // Invalidate all board queries so Dashboard and Boards pages refresh
+            queryClient.invalidateQueries({ queryKey: ['boards'] })
+          } else if (data.type === 'BoardStatusUpdate') {
+            // Merge into live-status cache
+            queryClient.setQueryData<Record<string, BoardLiveStatus>>(
+              ['boards', 'live-status'],
+              (old) => {
+                if (!old) return old
+                return {
+                  ...old,
+                  [data.board_id]: {
+                    connectivity: data.connectivity,
+                    player_state: data.player_state,
+                    current_item: data.current_item,
+                    playlist_name: data.playlist_name,
+                    system_metrics: data.system_metrics,
+                    last_status_at: data.last_status_at,
+                    volume: data.volume ?? 1,
+                    is_muted: data.is_muted ?? false,
+                    current_index: data.current_index ?? 0,
+                    total_items: data.total_items ?? 0,
+                    playback_speed: 1,
+                    is_fullscreen: false,
+                  },
+                }
+              },
+            )
             queryClient.invalidateQueries({ queryKey: ['boards'] })
           } else if (data.type === 'ScreenshotUpdated') {
             // Invalidate screenshot meta and screenshots list for this board

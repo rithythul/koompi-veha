@@ -9,6 +9,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::AgentConfig;
 use crate::player_client;
+use crate::terminal;
 
 /// Messages exchanged over the WebSocket (duplicated from veha-api since we
 /// cannot depend on that crate).
@@ -42,6 +43,35 @@ pub enum WsMessage {
         timestamp: String,
         data: String,
     },
+    // ── Remote Terminal ──
+    TerminalStart {
+        session_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    TerminalInput {
+        session_id: String,
+        data: String,
+    },
+    TerminalOutput {
+        session_id: String,
+        data: String,
+    },
+    TerminalResize {
+        session_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    TerminalExit {
+        session_id: String,
+        #[serde(default)]
+        code: Option<i32>,
+    },
+    // ── Fleet Management ──
+    Ping { timestamp: String },
+    Pong { timestamp: String },
+    RestartAgent,
+    RestartPlayer,
 }
 
 /// Run the WebSocket client loop with automatic reconnection.
@@ -129,6 +159,10 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
     let screenshot_path = format!("/tmp/veha-screenshot-{}.jpg", config.board_id);
     let screenshot_board_id = config.board_id.clone();
 
+    // Channel for terminal output and other async responses to be sent over WS
+    let (resp_tx, mut resp_rx) = tokio::sync::mpsc::channel::<String>(64);
+    let mut terminal_mgr = terminal::TerminalManager::new(resp_tx.clone());
+
     // Play log tracking: detect when the player transitions between items.
     let mut prev_item: Option<String> = None; // source of previous item
     let mut prev_index: usize = 0;
@@ -144,7 +178,7 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
             msg = ws_rx.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        handle_server_message(&text, &socket_path, &api_base_url).await;
+                        handle_server_message(&text, &socket_path, &api_base_url, &mut terminal_mgr, &resp_tx).await;
                     }
                     Some(Ok(Message::Ping(data))) => {
                         ws_tx.send(Message::Pong(data)).await?;
@@ -161,10 +195,21 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
                 }
             }
 
+            // Async responses (terminal output, etc.) to send back
+            resp = resp_rx.recv() => {
+                if let Some(msg) = resp {
+                    if let Err(e) = ws_tx.send(Message::Text(msg.into())).await {
+                        error!("Failed to send response: {e}");
+                        break;
+                    }
+                }
+            }
+
             // Periodic status report
             _ = status_ticker.tick() => {
                 match player_client::get_status(&socket_path).await {
-                    Ok(status) => {
+                    Ok(mut status) => {
+                        status.system_metrics = Some(crate::metrics::collect());
                         // Detect item transition and send play report for the previous item.
                         let current_item = status.current_item.clone();
                         let current_index = status.current_index;
@@ -253,6 +298,7 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
                             is_muted: false,
                             playback_speed: 1.0,
                             is_fullscreen: false,
+                            system_metrics: Some(crate::metrics::collect()),
                         };
                         let msg = serde_json::to_string(&WsMessage::Status { status })?;
                         let _ = ws_tx.send(Message::Text(msg.into())).await;
@@ -298,6 +344,9 @@ async fn connect_and_run(config: &AgentConfig) -> Result<(), Box<dyn std::error:
         }
     }
 
+    // Clean up all terminal sessions on disconnect
+    terminal_mgr.kill_all();
+
     Ok(())
 }
 
@@ -325,7 +374,13 @@ fn transform_playlist(raw: &str, api_base_url: &str) -> Result<String, serde_jso
 }
 
 /// Handle a text message received from the API server.
-async fn handle_server_message(text: &str, socket_path: &str, api_base_url: &str) {
+async fn handle_server_message(
+    text: &str,
+    socket_path: &str,
+    api_base_url: &str,
+    terminal_mgr: &mut terminal::TerminalManager,
+    resp_tx: &tokio::sync::mpsc::Sender<String>,
+) {
     match serde_json::from_str::<WsMessage>(text) {
         Ok(WsMessage::Command { command }) => {
             info!("Received command: {command:?}");
@@ -362,6 +417,43 @@ async fn handle_server_message(text: &str, socket_path: &str, api_base_url: &str
                     }
                 }
             }
+        }
+        Ok(WsMessage::TerminalStart { session_id, cols, rows }) => {
+            terminal_mgr.start_session(session_id, cols, rows);
+        }
+        Ok(WsMessage::TerminalInput { session_id, data }) => {
+            terminal_mgr.write_input(&session_id, &data);
+        }
+        Ok(WsMessage::TerminalResize { session_id, cols, rows }) => {
+            terminal_mgr.resize(&session_id, cols, rows);
+        }
+        Ok(WsMessage::TerminalExit { session_id, .. }) => {
+            terminal_mgr.kill_session(&session_id);
+        }
+        Ok(WsMessage::Ping { timestamp }) => {
+            info!("Received ping, sending pong");
+            let pong = serde_json::to_string(&WsMessage::Pong { timestamp }).unwrap_or_default();
+            if let Err(e) = resp_tx.send(pong).await {
+                error!("Failed to send pong: {e}");
+            }
+        }
+        Ok(WsMessage::RestartAgent) => {
+            warn!("Restart agent requested — restarting via systemctl");
+            tokio::spawn(async {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                let _ = tokio::process::Command::new("systemctl")
+                    .args(["restart", "veha-agent"])
+                    .status()
+                    .await;
+            });
+        }
+        Ok(WsMessage::RestartPlayer) => {
+            warn!("Restart player requested — restarting via systemctl");
+            let _ = tokio::process::Command::new("systemctl")
+                .args(["restart", "veha-player"])
+                .status()
+                .await;
+            info!("veha-player restart command completed");
         }
         Ok(other) => {
             debug!("Ignoring unexpected message: {other:?}");

@@ -4,6 +4,7 @@ import { toQueryString } from '../lib/utils'
 import type {
   Board, CreateBoard, UpdateBoard, BoardFilter,
   PaginatedResponse, PlayerCommand, ResolvedPlaylist, ScreenshotMeta, ScreenshotListResponse,
+  BoardLiveStatus, PingResult,
 } from '../types/api'
 
 export function useBoards(params?: BoardFilter) {
@@ -94,5 +95,44 @@ export function useBoardScreenshots(id: string) {
     queryFn: () => apiClient<ScreenshotListResponse>(`/api/boards/${id}/screenshots`),
     enabled: !!id,
     staleTime: 10_000,
+  })
+}
+
+export function useLiveStatus() {
+  return useQuery({
+    queryKey: ['boards', 'live-status'],
+    queryFn: () => apiClient<Record<string, BoardLiveStatus>>('/api/boards/live-status'),
+    refetchInterval: 30_000,
+  })
+}
+
+export function usePingBoard() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient<PingResult>(`/api/boards/${id}/ping`, { method: 'POST' }),
+  })
+}
+
+export function useRestartAgent() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient<null>(`/api/boards/${id}/restart-agent`, { method: 'POST' }),
+  })
+}
+
+export function useRestartPlayer() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiClient<null>(`/api/boards/${id}/restart-player`, { method: 'POST' }),
+  })
+}
+
+export function useBulkAction() {
+  return useMutation({
+    mutationFn: (data: { board_ids: string[]; action: string }) =>
+      apiClient<Record<string, boolean>>('/api/boards/bulk-action', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   })
 }

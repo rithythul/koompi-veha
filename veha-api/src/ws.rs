@@ -16,6 +16,9 @@ pub type AgentConnections = Arc<RwLock<HashMap<String, mpsc::Sender<String>>>>;
 /// Set of sender channels for connected dashboard WebSocket clients.
 pub type DashboardConnections = Arc<RwLock<Vec<mpsc::Sender<String>>>>;
 
+/// Map of terminal session_id -> sender channel for pushing output to the dashboard terminal WS.
+pub type TerminalSessions = Arc<RwLock<HashMap<String, mpsc::Sender<String>>>>;
+
 /// Maximum number of screenshot history entries to keep per board.
 pub const MAX_SCREENSHOTS_PER_BOARD: usize = 60;
 
@@ -34,6 +37,25 @@ pub struct BoardScreenshots {
 
 /// Map of board_id -> screenshot history.
 pub type ScreenshotStore = Arc<RwLock<HashMap<String, BoardScreenshots>>>;
+
+/// Live status of a board, populated from agent Status messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoardLiveStatus {
+    pub connectivity: String,
+    pub player_state: String,
+    pub current_item: Option<String>,
+    pub playlist_name: Option<String>,
+    pub current_index: usize,
+    pub total_items: usize,
+    pub system_metrics: Option<veha_core::command::SystemMetrics>,
+    pub last_status_at: String,
+    pub volume: f32,
+    pub is_muted: bool,
+    pub playback_speed: f32,
+    pub is_fullscreen: bool,
+}
+
+pub type BoardStatusStore = Arc<RwLock<HashMap<String, BoardLiveStatus>>>;
 
 /// Messages exchanged over the WebSocket.
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,6 +87,35 @@ pub enum WsMessage {
         timestamp: String,
         data: String,
     },
+    // ── Remote Terminal ──
+    TerminalStart {
+        session_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    TerminalInput {
+        session_id: String,
+        data: String,
+    },
+    TerminalOutput {
+        session_id: String,
+        data: String,
+    },
+    TerminalResize {
+        session_id: String,
+        cols: u16,
+        rows: u16,
+    },
+    TerminalExit {
+        session_id: String,
+        #[serde(default)]
+        code: Option<i32>,
+    },
+    // ── Fleet Management ──
+    Ping { timestamp: String },
+    Pong { timestamp: String },
+    RestartAgent,
+    RestartPlayer,
 }
 
 /// Handle an incoming agent WebSocket connection.
@@ -77,6 +128,8 @@ pub async fn handle_agent_socket(
     screenshots: ScreenshotStore,
     media_dir: String,
     analysis_store: crate::screenshot_analysis::AnalysisStore,
+    terminal_sessions: TerminalSessions,
+    board_status: BoardStatusStore,
 ) {
     let (mut ws_tx, mut ws_rx) = socket.split();
 
@@ -185,12 +238,25 @@ pub async fn handle_agent_socket(
             match serde_json::from_str::<WsMessage>(&text) {
                 Ok(WsMessage::Status { status }) => {
                     tracing::debug!("Status from {}: {:?}", bid, status);
-                    // The agent is connected and reporting, so the board is online.
-                    // Store "online" as the connectivity status (not the player state).
                     let _ =
                         crate::db::update_board_status(&db_clone, &bid, "online").await;
-                    // Broadcast online status to all connected dashboards.
-                    broadcast_board_status(&dashboards, &bid, "online").await;
+                    // Update live status store
+                    let live = BoardLiveStatus {
+                        connectivity: "online".into(),
+                        player_state: status.state.clone(),
+                        current_item: status.current_item.clone(),
+                        playlist_name: status.playlist_name.clone(),
+                        current_index: status.current_index,
+                        total_items: status.total_items,
+                        system_metrics: status.system_metrics.clone(),
+                        last_status_at: Utc::now().to_rfc3339(),
+                        volume: status.volume,
+                        is_muted: status.is_muted,
+                        playback_speed: status.playback_speed,
+                        is_fullscreen: status.is_fullscreen,
+                    };
+                    board_status.write().await.insert(bid.clone(), live.clone());
+                    broadcast_board_status_update(&dashboards, &bid, &live).await;
                 }
                 Ok(WsMessage::PlayReport {
                     booking_id, creative_id, media_id,
@@ -359,6 +425,14 @@ pub async fn handle_agent_socket(
                         }
                     }
                 }
+                Ok(WsMessage::TerminalOutput { ref session_id, .. })
+                | Ok(WsMessage::TerminalExit { ref session_id, .. }) => {
+                    // Forward terminal output/exit from agent to the dashboard terminal WS
+                    let sessions = terminal_sessions.read().await;
+                    if let Some(tx) = sessions.get(session_id) {
+                        let _ = tx.try_send(text.to_string());
+                    }
+                }
                 _ => {
                     tracing::debug!("Received message from {}: {}", bid, text);
                 }
@@ -374,6 +448,14 @@ pub async fn handle_agent_socket(
     }
     let _ = crate::db::update_board_status(&db, &board_id, "offline").await;
     broadcast_board_status(&dashboards, &board_id, "offline").await;
+    // Update live status store
+    {
+        let mut store = board_status.write().await;
+        if let Some(entry) = store.get_mut(&board_id) {
+            entry.connectivity = "offline".into();
+            entry.player_state = "offline".into();
+        }
+    }
 
     send_task.abort();
 }
@@ -476,6 +558,64 @@ pub async fn broadcast_board_status(
     }
 }
 
+/// Broadcast a rich board status update to all connected dashboard clients.
+pub async fn broadcast_board_status_update(
+    dashboards: &DashboardConnections,
+    board_id: &str,
+    live: &BoardLiveStatus,
+) {
+    let msg = match serde_json::to_string(&serde_json::json!({
+        "type": "BoardStatusUpdate",
+        "board_id": board_id,
+        "connectivity": live.connectivity,
+        "player_state": live.player_state,
+        "current_item": live.current_item,
+        "playlist_name": live.playlist_name,
+        "system_metrics": live.system_metrics,
+        "last_status_at": live.last_status_at,
+        "volume": live.volume,
+        "is_muted": live.is_muted,
+        "current_index": live.current_index,
+        "total_items": live.total_items,
+    })) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to serialize board status update: {e}");
+            return;
+        }
+    };
+    let readers = dashboards.read().await;
+    for tx in readers.iter() {
+        let _ = tx.try_send(msg.clone());
+    }
+}
+
+/// Send an arbitrary WsMessage to a board agent. Returns true if queued.
+pub async fn send_command_msg_to_board(agents: &AgentConnections, board_id: &str, msg: &WsMessage) -> bool {
+    let json = match serde_json::to_string(msg) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let map = agents.read().await;
+    if let Some(tx) = map.get(board_id) {
+        tx.send(json).await.is_ok()
+    } else {
+        false
+    }
+}
+
+/// Send a Ping to a board agent. Returns estimated latency if agent is connected.
+pub async fn ping_board(agents: &AgentConnections, board_id: &str) -> Option<u32> {
+    let timestamp = Utc::now().to_rfc3339();
+    let start = std::time::Instant::now();
+    let msg = serde_json::to_string(&WsMessage::Ping { timestamp }).ok()?;
+    let map = agents.read().await;
+    let tx = map.get(board_id)?;
+    tx.send(msg).await.ok()?;
+    let latency = start.elapsed().as_millis() as u32;
+    Some(latency)
+}
+
 /// Handle an incoming dashboard WebSocket connection.
 pub async fn handle_dashboard_socket(socket: WebSocket, dashboards: DashboardConnections) {
     let (mut ws_tx, mut ws_rx) = socket.split();
@@ -517,4 +657,164 @@ pub async fn handle_dashboard_socket(socket: WebSocket, dashboards: DashboardCon
 
     send_task.abort();
     tracing::debug!("Dashboard WebSocket disconnected");
+}
+
+/// Handle a terminal WebSocket connection from a dashboard client.
+///
+/// This creates a session, sends TerminalStart to the agent, and bridges
+/// I/O between the dashboard WebSocket and the agent.
+pub async fn handle_terminal_socket(
+    socket: WebSocket,
+    board_id: String,
+    agents: AgentConnections,
+    terminal_sessions: TerminalSessions,
+) {
+    let (mut ws_tx, mut ws_rx) = socket.split();
+
+    // Generate a unique session ID
+    let session_id = uuid::Uuid::new_v4().to_string();
+    tracing::info!("Terminal session {session_id} starting for board {board_id}");
+
+    // Create a channel for receiving output from the agent
+    let (output_tx, mut output_rx) = mpsc::channel::<String>(128);
+
+    // Register the terminal session
+    {
+        let mut sessions = terminal_sessions.write().await;
+        sessions.insert(session_id.clone(), output_tx);
+    }
+
+    // Send TerminalStart to the agent with default size (will be resized by client)
+    let start_msg = serde_json::to_string(&WsMessage::TerminalStart {
+        session_id: session_id.clone(),
+        cols: 80,
+        rows: 24,
+    })
+    .unwrap_or_default();
+
+    let agent_connected = {
+        let map = agents.read().await;
+        if let Some(tx) = map.get(&board_id) {
+            tx.send(start_msg).await.is_ok()
+        } else {
+            false
+        }
+    };
+
+    if !agent_connected {
+        tracing::warn!("Board {board_id} not connected, cannot start terminal");
+        let err = serde_json::json!({
+            "type": "TerminalExit",
+            "session_id": session_id,
+            "code": -1,
+            "error": "Board is not connected"
+        });
+        let _ = ws_tx
+            .send(Message::Text(
+                serde_json::to_string(&err).unwrap_or_default().into(),
+            ))
+            .await;
+        // Clean up
+        terminal_sessions.write().await.remove(&session_id);
+        return;
+    }
+
+    // Send session_id to the client so it knows which session this is
+    let init_msg = serde_json::json!({
+        "type": "TerminalReady",
+        "session_id": session_id,
+    });
+    if ws_tx
+        .send(Message::Text(
+            serde_json::to_string(&init_msg).unwrap_or_default().into(),
+        ))
+        .await
+        .is_err()
+    {
+        terminal_sessions.write().await.remove(&session_id);
+        return;
+    }
+
+    let sid = session_id.clone();
+    let agents_clone = agents.clone();
+    let board_id_clone = board_id.clone();
+
+    // Forward agent output to the dashboard WS
+    let send_task = tokio::spawn(async move {
+        while let Some(msg) = output_rx.recv().await {
+            if ws_tx.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Read input from the dashboard WS and forward to agent
+    while let Some(Ok(msg)) = ws_rx.next().await {
+        match msg {
+            Message::Text(text) => {
+                // Parse the message and forward to agent
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                    let msg_type = parsed.get("type").and_then(|t| t.as_str());
+                    let forward = match msg_type {
+                        Some("TerminalInput") => {
+                            // Inject the session_id
+                            let fwd = serde_json::to_string(&WsMessage::TerminalInput {
+                                session_id: sid.clone(),
+                                data: parsed
+                                    .get("data")
+                                    .and_then(|d| d.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            });
+                            fwd.ok()
+                        }
+                        Some("TerminalResize") => {
+                            let cols = parsed
+                                .get("cols")
+                                .and_then(|c| c.as_u64())
+                                .unwrap_or(80) as u16;
+                            let rows = parsed
+                                .get("rows")
+                                .and_then(|r| r.as_u64())
+                                .unwrap_or(24) as u16;
+                            let fwd = serde_json::to_string(&WsMessage::TerminalResize {
+                                session_id: sid.clone(),
+                                cols,
+                                rows,
+                            });
+                            fwd.ok()
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(fwd_msg) = forward {
+                        let map = agents_clone.read().await;
+                        if let Some(tx) = map.get(&board_id_clone) {
+                            let _ = tx.send(fwd_msg).await;
+                        }
+                    }
+                }
+            }
+            Message::Close(_) => break,
+            _ => {}
+        }
+    }
+
+    // Clean up: send TerminalExit to agent and remove session
+    tracing::info!("Terminal session {session_id} ended for board {board_id}");
+    let exit_msg =
+        serde_json::to_string(&WsMessage::TerminalExit {
+            session_id: session_id.clone(),
+            code: None,
+        })
+        .unwrap_or_default();
+    {
+        let map = agents.read().await;
+        if let Some(tx) = map.get(&board_id) {
+            let _ = tx.send(exit_msg).await;
+        }
+    }
+
+    terminal_sessions.write().await.remove(&session_id);
+    send_task.abort();
 }

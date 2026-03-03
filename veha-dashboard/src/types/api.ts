@@ -348,6 +348,39 @@ export interface PlayerStatus {
   uptime_secs: number | null
 }
 
+// === System Metrics / Live Status ===
+export interface SystemMetrics {
+  cpu_percent: number
+  memory_used_mb: number
+  memory_total_mb: number
+  disk_used_gb: number
+  disk_total_gb: number
+  temperature_celsius: number | null
+  uptime_secs: number
+  agent_version: string
+}
+
+export interface BoardLiveStatus {
+  connectivity: string
+  player_state: string
+  current_item: string | null
+  playlist_name: string | null
+  current_index: number
+  total_items: number
+  system_metrics: SystemMetrics | null
+  last_status_at: string
+  volume: number
+  is_muted: boolean
+  playback_speed: number
+  is_fullscreen: boolean
+}
+
+export interface PingResult {
+  ok: boolean
+  latency_ms?: number
+  error?: string
+}
+
 // === Resolved Schedule ===
 export interface ResolvedItem {
   source: string
