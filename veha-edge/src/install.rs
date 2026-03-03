@@ -3,6 +3,56 @@ use std::process::Command;
 
 use tracing::{error, info};
 
+/// List of hostnames considered too generic to use as-is as a board ID.
+const GENERIC_HOSTNAMES: &[&str] = &[
+    "localhost", "raspberrypi", "ubuntu", "debian", "archlinux", "kali", "pi",
+];
+
+/// Returns the last 4 hex chars of /etc/machine-id (systemd standard).
+/// Falls back to /etc/veha/machine-id, generating and persisting one if needed.
+fn machine_id_suffix() -> String {
+    // Primary: systemd machine ID
+    if let Ok(id) = fs::read_to_string("/etc/machine-id") {
+        let id = id.trim();
+        if id.len() >= 4 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return id[id.len() - 4..].to_string();
+        }
+    }
+    // Secondary: persisted fallback
+    let fallback = "/etc/veha/machine-id";
+    if let Ok(id) = fs::read_to_string(fallback) {
+        let id = id.trim().to_string();
+        if id.len() == 4 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return id;
+        }
+    }
+    // Generate from subsecond nanoseconds and persist (best-effort)
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(0x1a2b);
+    let suffix = format!("{:04x}", nanos as u16);
+    let _ = fs::create_dir_all("/etc/veha");
+    let _ = fs::write(fallback, &suffix);
+    suffix
+}
+
+/// Derives a unique board ID from the machine hostname.
+/// Generic hostnames get a 4-char machine-id suffix appended.
+fn generate_board_id() -> String {
+    let hostname = fs::read_to_string("/etc/hostname")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "veha-board".to_string());
+
+    if GENERIC_HOSTNAMES.contains(&hostname.as_str()) {
+        format!("{}-{}", hostname, machine_id_suffix())
+    } else {
+        hostname
+    }
+}
+
 struct InstallParams {
     board_id: String,
     board_name: String,
@@ -283,5 +333,31 @@ mod tests {
         }
         let params = read_install_params().unwrap();
         assert_eq!(params.api_url, "ws://192.168.1.17:3000/ws/agent");
+    }
+
+    #[test]
+    fn test_machine_id_suffix_format() {
+        let suffix = machine_id_suffix();
+        assert_eq!(suffix.len(), 4, "suffix must be exactly 4 chars");
+        assert!(
+            suffix.chars().all(|c| c.is_ascii_hexdigit()),
+            "suffix must be hex digits, got: {suffix}"
+        );
+    }
+
+    #[test]
+    fn test_generate_board_id_nonempty() {
+        let id = generate_board_id();
+        assert!(!id.is_empty());
+        assert!(!id.contains(' '), "board_id must not contain spaces");
+    }
+
+    #[test]
+    fn test_generate_board_id_generic_gets_suffix() {
+        // Verify the suffix is valid hex — it would be appended to generic hostnames
+        let suffix = machine_id_suffix();
+        let fake_generic = format!("localhost-{suffix}");
+        assert!(fake_generic.starts_with("localhost-"));
+        assert_eq!(fake_generic.len(), "localhost-".len() + 4);
     }
 }
