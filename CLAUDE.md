@@ -26,7 +26,7 @@ RUST_LOG=info cargo run -p veha-api -- --bind 0.0.0.0:3000 --database veha.db --
 cd veha-dashboard && bun run build && cp -r dist/* ../static/
 
 # Deploy edge device
-sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 ./veha-edge install
+sudo SERVER_URL=http://192.168.1.17:3000 ./veha-edge install
 
 # Reset dev database (delete and restart — auto-migrates + creates admin)
 rm veha.db && cargo run -p veha-api -- --bind 0.0.0.0:3000
@@ -99,7 +99,11 @@ Session cleanup (hourly), campaign expiry (hourly), offline board alerts (5 min)
 # Download pre-built binary (pick your arch: x86_64-linux or aarch64-linux)
 wget https://github.com/rithythul/koompi-veha/releases/latest/download/veha-edge-x86_64-linux -O veha-edge
 chmod +x veha-edge
-sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=board-001 ./veha-edge install
+# BOARD_ID defaults to machine hostname if not set
+sudo SERVER_URL=http://192.168.1.17:3000 ./veha-edge install
+
+# Override BOARD_ID when you want explicit control
+sudo SERVER_URL=http://192.168.1.17:3000 BOARD_ID=lobby-screen-01 ./veha-edge install
 
 # Update to latest
 sudo veha-edge update
@@ -157,7 +161,7 @@ Note: `api_base_url` is auto-derived from `api_url` (`ws://` → `http://`, path
 
 **Deploy dashboard:** `cd veha-dashboard && bun run build && cp -r dist/* ../static/`
 
-**Deploy edge:** Download `veha-edge` binary from GitHub Releases, then `sudo SERVER_URL=... BOARD_ID=... ./veha-edge install`. Use `sudo veha-edge update` to upgrade, `sudo veha-edge uninstall` to remove.
+**Deploy edge:** Download `veha-edge` binary from GitHub Releases, then `sudo SERVER_URL=... ./veha-edge install` (BOARD_ID is optional — defaults to machine hostname). Use `sudo veha-edge update` to upgrade, `sudo veha-edge uninstall` to remove.
 
 ## Gotchas
 
