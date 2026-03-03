@@ -149,11 +149,11 @@ Note: `api_base_url` is auto-derived from `api_url` (`ws://` → `http://`, path
 
 **Add API endpoint:** Handler in `routes.rs`, DB fn in `db.rs`, model in `models.rs`, route in `create_router()`. Write endpoints need `Extension<User>` + `auth::require_role(&user, WRITE_ROLES)`.
 
-**Add player command:** Variant in `veha-core/src/command.rs` `PlayerCommand`, handle in `veha-player/src/main.rs`, update `WsMessage` in **both** `veha-api/src/ws.rs` and `veha-agent/src/ws_client.rs`.
+**Add player command:** Variant in `veha-core/src/command.rs` `PlayerCommand`, handle in `veha-player/src/lib.rs`, update `WsMessage` in **both** `veha-api/src/ws.rs` and `veha-agent/src/ws_client.rs`.
 
 **Add dashboard page:** Page in `pages/`, lazy import + route in `App.tsx`, nav entry in `components/layout/Sidebar.tsx`, API hooks in `api/`.
 
-**Add output backend:** `veha-output/src/mybackend.rs` implementing `OutputSink`, feature gate in Cargo.toml + lib.rs, match arm in `veha-player/src/main.rs`.
+**Add output backend:** `veha-output/src/mybackend.rs` implementing `OutputSink`, feature gate in Cargo.toml + lib.rs, match arm in `veha-player/src/lib.rs`.
 
 **Deploy dashboard:** `cd veha-dashboard && bun run build && cp -r dist/* ../static/`
 
