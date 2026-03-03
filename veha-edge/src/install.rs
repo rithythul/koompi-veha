@@ -14,8 +14,8 @@ fn machine_id_suffix() -> String {
     // Primary: systemd machine ID
     if let Ok(id) = fs::read_to_string("/etc/machine-id") {
         let id = id.trim();
-        if id.len() >= 4 && id.chars().all(|c| c.is_ascii_hexdigit()) {
-            return id[id.len() - 4..].to_string();
+        if id.len() == 32 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return id[28..].to_string();
         }
     }
     // Secondary: persisted fallback
@@ -31,10 +31,20 @@ fn machine_id_suffix() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.subsec_nanos())
         .unwrap_or(0x1a2b);
-    let suffix = format!("{:04x}", nanos as u16);
+    let folded = (nanos ^ (nanos >> 16)) as u16;
+    let suffix = format!("{:04x}", folded);
     let _ = fs::create_dir_all("/etc/veha");
     let _ = fs::write(fallback, &suffix);
     suffix
+}
+
+/// Inner function for testability — derives board ID from a given hostname string.
+fn generate_board_id_from(hostname: &str) -> String {
+    if GENERIC_HOSTNAMES.contains(&hostname) {
+        format!("{}-{}", hostname, machine_id_suffix())
+    } else {
+        hostname.to_string()
+    }
 }
 
 /// Derives a unique board ID from the machine hostname.
@@ -45,12 +55,7 @@ fn generate_board_id() -> String {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "veha-board".to_string());
-
-    if GENERIC_HOSTNAMES.contains(&hostname.as_str()) {
-        format!("{}-{}", hostname, machine_id_suffix())
-    } else {
-        hostname
-    }
+    generate_board_id_from(&hostname)
 }
 
 struct InstallParams {
@@ -353,11 +358,31 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_board_id_generic_gets_suffix() {
-        // Verify the suffix is valid hex — it would be appended to generic hostnames
-        let suffix = machine_id_suffix();
-        let fake_generic = format!("localhost-{suffix}");
-        assert!(fake_generic.starts_with("localhost-"));
-        assert_eq!(fake_generic.len(), "localhost-".len() + 4);
+    fn test_generate_board_id_from_generic_appends_suffix() {
+        let id = generate_board_id_from("localhost");
+        assert!(id.starts_with("localhost-"), "got: {id}");
+        assert_eq!(id.len(), "localhost-".len() + 4);
+        let suffix = &id["localhost-".len()..];
+        assert!(
+            suffix.chars().all(|c| c.is_ascii_hexdigit()),
+            "suffix must be hex: {suffix}"
+        );
+    }
+
+    #[test]
+    fn test_generate_board_id_from_unique_hostname_unchanged() {
+        let id = generate_board_id_from("my-store-downtown");
+        assert_eq!(id, "my-store-downtown");
+    }
+
+    #[test]
+    fn test_generate_board_id_from_all_generic_names() {
+        for name in &["localhost", "raspberrypi", "ubuntu", "debian", "archlinux", "kali", "pi"] {
+            let id = generate_board_id_from(name);
+            assert!(
+                id.starts_with(&format!("{name}-")),
+                "{name} should get a suffix, got: {id}"
+            );
+        }
     }
 }
