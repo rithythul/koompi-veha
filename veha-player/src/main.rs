@@ -263,25 +263,31 @@ async fn main() {
             },
             PlayerCommand::TakeScreenshot(path) => {
                 let frame_opt = lock_or_default(&ms.last_frame).clone();
-                if let Some(frame) = frame_opt {
-                    match ImageBuffer::<Rgb<u8>, _>::from_raw(
-                        frame.width,
-                        frame.height,
-                        frame.data.clone(),
-                    ) {
-                        Some(img) => {
-                            if let Err(e) = img.save(&path) {
-                                error!("Failed to save screenshot to {path}: {e}");
-                            } else {
-                                info!("Screenshot saved to {path}");
-                            }
-                        }
-                        None => {
-                            error!("Failed to create image buffer from frame data");
+                let frame = frame_opt.unwrap_or_else(|| {
+                    // No content playing — produce a black frame matching the output resolution
+                    VideoFrame {
+                        width: config.width,
+                        height: config.height,
+                        data: vec![0u8; (config.width * config.height * 3) as usize],
+                        pts: None,
+                        time_base: (0, 1),
+                    }
+                });
+                match ImageBuffer::<Rgb<u8>, _>::from_raw(
+                    frame.width,
+                    frame.height,
+                    frame.data.clone(),
+                ) {
+                    Some(img) => {
+                        if let Err(e) = img.save(&path) {
+                            error!("Failed to save screenshot to {path}: {e}");
+                        } else {
+                            info!("Screenshot saved to {path}");
                         }
                     }
-                } else {
-                    info!("No frame available for screenshot");
+                    None => {
+                        error!("Failed to create image buffer from frame data");
+                    }
                 }
             }
             PlayerCommand::Seek(pos) => {
