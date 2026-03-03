@@ -5,7 +5,24 @@ use tracing::{error, info};
 
 /// List of hostnames considered too generic to use as-is as a board ID.
 const GENERIC_HOSTNAMES: &[&str] = &[
-    "localhost", "raspberrypi", "ubuntu", "debian", "archlinux", "kali", "pi",
+    // Common defaults
+    "localhost", "pi",
+    // Raspberry Pi and clones
+    "raspberrypi",
+    // Debian family
+    "ubuntu", "debian",
+    // Arch family
+    "archlinux", "manjaro",
+    // Security distros
+    "kali",
+    // SBC-targeted distros
+    "armbian", "dietpi", "buildroot",
+    // SBC vendor defaults
+    "orangepi", "bananapi", "rock64", "odroid",
+    // RPM family
+    "fedora", "centos", "rocky", "almalinux",
+    // Other
+    "nixos", "alpine",
 ];
 
 /// Returns the last 4 hex chars of /etc/machine-id (systemd standard).
@@ -38,12 +55,26 @@ fn machine_id_suffix() -> String {
     suffix
 }
 
+/// Sanitizes a raw hostname into a board-ID-safe string.
+/// Replaces any character outside `[a-z0-9._-]` with `-`, lowercases, and
+/// trims leading/trailing dashes. Falls back to `"veha-board"` if empty.
+fn sanitize_hostname(raw: &str) -> String {
+    let s: String = raw
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '-' })
+        .collect();
+    let s = s.trim_matches('-').to_string();
+    if s.is_empty() { "veha-board".to_string() } else { s }
+}
+
 /// Inner function for testability — derives board ID from a given hostname string.
 fn generate_board_id_from(hostname: &str) -> String {
-    if GENERIC_HOSTNAMES.contains(&hostname) {
-        format!("{}-{}", hostname, machine_id_suffix())
+    let clean = sanitize_hostname(hostname);
+    if GENERIC_HOSTNAMES.contains(&clean.as_str()) {
+        format!("{}-{}", clean, machine_id_suffix())
     } else {
-        hostname.to_string()
+        clean
     }
 }
 
@@ -278,6 +309,11 @@ pub fn uninstall(purge: bool) {
 mod tests {
     use super::*;
 
+    /// Mutex that serializes all tests which mutate environment variables.
+    /// Rust test threads share the same process environment, so env-touching
+    /// tests must not run concurrently even when `--test-threads` > 1.
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_render_config_toml() {
         let params = InstallParams {
@@ -309,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_env_missing_server_url() {
-        // SAFETY: single-threaded test run (--test-threads=1)
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::remove_var("BOARD_ID");
             std::env::remove_var("SERVER_URL");
@@ -321,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_board_id_auto_generated_when_env_not_set() {
-        // SAFETY: single-threaded test run (--test-threads=1)
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::remove_var("BOARD_ID");
             std::env::set_var("SERVER_URL", "http://192.168.1.17:3000");
@@ -335,7 +371,7 @@ mod tests {
 
     #[test]
     fn test_board_id_env_overrides_auto_generation() {
-        // SAFETY: single-threaded test run (--test-threads=1)
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::set_var("BOARD_ID", "explicit-board-id");
             std::env::set_var("SERVER_URL", "http://192.168.1.17:3000");
@@ -350,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_api_url_derivation() {
-        // SAFETY: single-threaded test run (--test-threads=1)
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::set_var("SERVER_URL", "http://192.168.1.17:3000");
             std::env::set_var("BOARD_ID", "test");
@@ -365,7 +401,7 @@ mod tests {
 
     #[test]
     fn test_api_url_trailing_slash() {
-        // SAFETY: single-threaded test run (--test-threads=1)
+        let _guard = ENV_MUTEX.lock().unwrap();
         unsafe {
             std::env::set_var("SERVER_URL", "http://192.168.1.17:3000/");
             std::env::set_var("BOARD_ID", "test");
@@ -422,5 +458,38 @@ mod tests {
                 "{name} should get a suffix, got: {id}"
             );
         }
+    }
+
+    #[test]
+    fn test_sanitize_hostname_lowercases() {
+        assert_eq!(sanitize_hostname("Raspberrypi"), "raspberrypi");
+        assert_eq!(sanitize_hostname("MyBoard"), "myboard");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_replaces_special_chars() {
+        assert_eq!(sanitize_hostname("board 01"), "board-01");
+        assert_eq!(sanitize_hostname("board/name"), "board-name");
+        assert_eq!(sanitize_hostname("board?name"), "board-name");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_trims_dashes() {
+        assert_eq!(sanitize_hostname("-board-"), "board");
+        assert_eq!(sanitize_hostname("  board  "), "board");
+    }
+
+    #[test]
+    fn test_sanitize_hostname_empty_fallback() {
+        assert_eq!(sanitize_hostname(""), "veha-board");
+        assert_eq!(sanitize_hostname("   "), "veha-board");
+        assert_eq!(sanitize_hostname("---"), "veha-board");
+    }
+
+    #[test]
+    fn test_generate_board_id_from_case_insensitive_generic() {
+        // Uppercase "Raspberrypi" should still be treated as generic and get a suffix
+        let id = generate_board_id_from("Raspberrypi");
+        assert!(id.starts_with("raspberrypi-"), "got: {id}");
     }
 }
