@@ -1,13 +1,16 @@
 import { useRef, useState } from 'react'
 import { Film, Image as ImageIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { MediaItem } from '../../types/api'
+import type { MediaItem, Media } from '../../types/api'
+import { resolveIsVideo, resolveMediaId } from './playlistUtils'
+import { mediaThumbnailUrl } from '../../api/media'
 
 interface TimelineBlockProps {
   item: MediaItem
   index: number
   selected: boolean
   pixelsPerSecond: number
+  mediaList?: Media[]
   onSelect: () => void
   onDurationChange: (secs: number) => void
   onDragStart: (index: number) => void
@@ -19,6 +22,7 @@ export function TimelineBlock({
   index,
   selected,
   pixelsPerSecond,
+  mediaList,
   onSelect,
   onDurationChange,
   onDragStart,
@@ -26,8 +30,9 @@ export function TimelineBlock({
 }: TimelineBlockProps) {
   const durationSecs = item.duration?.secs ?? 10
   const width = Math.max(durationSecs * pixelsPerSecond, 48)
-  const isVideo = /\.(mp4|webm)$/i.test(item.source)
+  const isVideo = resolveIsVideo(item, mediaList)
   const isImage = !isVideo
+  const mediaId = resolveMediaId(item.source)
 
   // Inline duration editing
   const [editingDuration, setEditingDuration] = useState(false)
@@ -77,8 +82,11 @@ export function TimelineBlock({
     >
       {/* Thumbnail background */}
       <div className="absolute inset-0 bg-bg-elevated">
-        {isImage ? (
+        {isImage && mediaId ? (
           <img src={item.source} alt="" className="w-full h-full object-cover opacity-60" loading="lazy" />
+        ) : isVideo && mediaId ? (
+          <img src={mediaThumbnailUrl(mediaId)} alt="" className="w-full h-full object-cover opacity-60" loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none' }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <Film className="w-6 h-6 text-text-muted/50" />

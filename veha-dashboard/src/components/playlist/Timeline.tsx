@@ -2,7 +2,7 @@ import { useRef, useState, useCallback } from 'react'
 import { Plus, ZoomIn, ZoomOut } from 'lucide-react'
 import { TimelineBlock } from './TimelineBlock'
 import { cn } from '../../lib/utils'
-import type { MediaItem } from '../../types/api'
+import type { MediaItem, Media } from '../../types/api'
 
 interface TimelineProps {
   items: MediaItem[]
@@ -13,6 +13,7 @@ interface TimelineProps {
   onRemove: (index: number) => void
   onDuplicate: (index: number) => void
   onAddMedia: () => void
+  mediaList?: Media[]
 }
 
 export function Timeline({
@@ -24,6 +25,7 @@ export function Timeline({
   onRemove,
   onDuplicate,
   onAddMedia,
+  mediaList,
 }: TimelineProps) {
   const [zoom, setZoom] = useState(8)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -144,6 +146,7 @@ export function Timeline({
                   index={i}
                   selected={selectedIndex === i}
                   pixelsPerSecond={zoom}
+                  mediaList={mediaList}
                   onSelect={() => onSelect(i)}
                   onDurationChange={(secs) => onDurationChange(i, secs)}
                   onDragStart={handleDragStart}

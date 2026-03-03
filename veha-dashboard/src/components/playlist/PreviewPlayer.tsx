@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback, useImperativeHandle, forwardRef } from 'react'
 import { Play, Pause, SkipBack, SkipForward } from 'lucide-react'
-import type { MediaItem } from '../../types/api'
+import type { MediaItem, Media } from '../../types/api'
+import { resolveIsVideo } from './playlistUtils'
 
 export interface PreviewPlayerHandle {
   togglePlay: () => void
@@ -10,10 +11,11 @@ interface PreviewPlayerProps {
   items: MediaItem[]
   selectedIndex: number | null
   onIndexChange: (index: number) => void
+  mediaList?: Media[]
 }
 
 export const PreviewPlayer = forwardRef<PreviewPlayerHandle, PreviewPlayerProps>(
-  function PreviewPlayer({ items, selectedIndex, onIndexChange }, ref) {
+  function PreviewPlayer({ items, selectedIndex, onIndexChange, mediaList }, ref) {
     const videoRef = useRef<HTMLVideoElement>(null)
     const [playing, setPlaying] = useState(false)
     const [elapsed, setElapsed] = useState(0)
@@ -23,7 +25,7 @@ export const PreviewPlayer = forwardRef<PreviewPlayerHandle, PreviewPlayerProps>
     const currentIndex = selectedIndex ?? 0
     const currentItem = items[currentIndex] ?? null
     const durationSecs = currentItem?.duration?.secs ?? 10
-    const isVideo = currentItem ? /\.(mp4|webm)$/i.test(currentItem.source) : false
+    const isVideo = resolveIsVideo(currentItem, mediaList)
 
     const clearTimer = () => {
       if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined }
