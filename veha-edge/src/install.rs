@@ -58,6 +58,7 @@ fn generate_board_id() -> String {
     generate_board_id_from(&hostname)
 }
 
+#[derive(Debug)]
 struct InstallParams {
     board_id: String,
     board_name: String,
@@ -69,8 +70,7 @@ struct InstallParams {
 }
 
 fn read_install_params() -> Result<InstallParams, String> {
-    let board_id = std::env::var("BOARD_ID")
-        .map_err(|_| "BOARD_ID env var is required".to_string())?;
+    let board_id = std::env::var("BOARD_ID").unwrap_or_else(|_| generate_board_id());
     let server_url = std::env::var("SERVER_URL")
         .map_err(|_| "SERVER_URL env var is required".to_string())?;
 
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn test_env_missing_board_id() {
+    fn test_env_missing_server_url() {
         // SAFETY: single-threaded test run (--test-threads=1)
         unsafe {
             std::env::remove_var("BOARD_ID");
@@ -316,6 +316,29 @@ mod tests {
         }
         let result = read_install_params();
         assert!(result.is_err());
+        assert!(result.unwrap_err().contains("SERVER_URL"));
+    }
+
+    #[test]
+    fn test_board_id_auto_generated_when_env_not_set() {
+        // SAFETY: single-threaded test run (--test-threads=1)
+        unsafe {
+            std::env::remove_var("BOARD_ID");
+            std::env::set_var("SERVER_URL", "http://192.168.1.17:3000");
+        }
+        let params = read_install_params().unwrap();
+        assert!(!params.board_id.is_empty());
+    }
+
+    #[test]
+    fn test_board_id_env_overrides_auto_generation() {
+        // SAFETY: single-threaded test run (--test-threads=1)
+        unsafe {
+            std::env::set_var("BOARD_ID", "explicit-board-id");
+            std::env::set_var("SERVER_URL", "http://192.168.1.17:3000");
+        }
+        let params = read_install_params().unwrap();
+        assert_eq!(params.board_id, "explicit-board-id");
     }
 
     #[test]
