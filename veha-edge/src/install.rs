@@ -276,6 +276,7 @@ mod tests {
 
     #[test]
     fn test_api_url_trailing_slash() {
+        // SAFETY: single-threaded test run (--test-threads=1)
         unsafe {
             std::env::set_var("SERVER_URL", "http://192.168.1.17:3000/");
             std::env::set_var("BOARD_ID", "test");
