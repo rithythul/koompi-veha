@@ -328,6 +328,9 @@ mod tests {
         }
         let params = read_install_params().unwrap();
         assert!(!params.board_id.is_empty());
+        assert!(!params.board_id.contains(' '));
+        assert_eq!(params.board_id, generate_board_id());
+        unsafe { std::env::remove_var("SERVER_URL"); }
     }
 
     #[test]
@@ -339,6 +342,10 @@ mod tests {
         }
         let params = read_install_params().unwrap();
         assert_eq!(params.board_id, "explicit-board-id");
+        unsafe {
+            std::env::remove_var("BOARD_ID");
+            std::env::remove_var("SERVER_URL");
+        }
     }
 
     #[test]
@@ -350,6 +357,10 @@ mod tests {
         }
         let params = read_install_params().unwrap();
         assert_eq!(params.api_url, "ws://192.168.1.17:3000/ws/agent");
+        unsafe {
+            std::env::remove_var("SERVER_URL");
+            std::env::remove_var("BOARD_ID");
+        }
     }
 
     #[test]
@@ -361,6 +372,10 @@ mod tests {
         }
         let params = read_install_params().unwrap();
         assert_eq!(params.api_url, "ws://192.168.1.17:3000/ws/agent");
+        unsafe {
+            std::env::remove_var("SERVER_URL");
+            std::env::remove_var("BOARD_ID");
+        }
     }
 
     #[test]
