@@ -27,7 +27,10 @@ async fn main() {
             }
         }
     } else {
-        error!("Config file not found: {}", args.config);
+        error!(
+            "Config file not found: {}. Create a TOML config with at least board_id and api_url.",
+            args.config
+        );
         std::process::exit(1);
     };
 
