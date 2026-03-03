@@ -1,5 +1,5 @@
 [workspace]
-members = ["veha-core", "veha-output", "veha-cli", "veha-player", "veha-api", "veha-agent", "veha-web"]
+members = ["veha-core", "veha-output", "veha-cli", "veha-player", "veha-api", "veha-agent", "veha-web", "veha-edge"]
 resolver = "2"
 
 [workspace.package]
@@ -11,6 +11,8 @@ repository = "https://github.com/koompi/koompi-veha"
 [workspace.dependencies]
 veha-core = { path = "veha-core" }
 veha-output = { path = "veha-output" }
+veha-agent = { path = "veha-agent" }
+veha-player = { path = "veha-player" }
 thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
