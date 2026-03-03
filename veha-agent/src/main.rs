@@ -1,20 +1,13 @@
 use std::path::Path;
 
 use clap::Parser;
-use tracing::{error, info};
+use tracing::error;
 
-mod config;
-mod metrics;
-mod player_client;
-mod terminal;
-mod ws_client;
-
-use config::AgentConfig;
+use veha_agent::AgentConfig;
 
 #[derive(Parser)]
-#[command(name = "veha-agent", about = "koompi-veha board agent — bridges the API server and local player")]
+#[command(name = "veha-agent", about = "koompi-veha board agent")]
 struct Args {
-    /// Path to agent config file (TOML)
     #[arg(short, long, default_value = "veha-agent.toml")]
     config: String,
 }
@@ -34,18 +27,9 @@ async fn main() {
             }
         }
     } else {
-        error!(
-            "Config file not found: {}. Create a TOML config with at least board_id and api_url.",
-            args.config
-        );
+        error!("Config file not found: {}", args.config);
         std::process::exit(1);
     };
 
-    info!(
-        "Starting veha-agent board_id={} api={}",
-        config.board_id, config.api_url
-    );
-
-    // The ws_client::run loop handles reconnection internally and never returns.
-    ws_client::run(config).await;
+    veha_agent::run(config).await;
 }

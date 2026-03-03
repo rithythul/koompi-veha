@@ -3,6 +3,14 @@ name = "veha-agent"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "veha_agent"
+path = "src/lib.rs"
+
+[[bin]]
+name = "veha-agent"
+path = "src/main.rs"
+
 [dependencies]
 veha-core.workspace = true
 tokio.workspace = true
