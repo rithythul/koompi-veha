@@ -1,1 +1,1 @@
-pub fn run() { todo!("update") }
+pub async fn run() { todo!("update") }

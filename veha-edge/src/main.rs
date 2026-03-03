@@ -51,7 +51,7 @@ async fn main() {
         Command::Uninstall { purge } => install::uninstall(purge),
         Command::Run => run::run().await,
         Command::Player { config } => run::player(&config).await,
-        Command::Update => update::run(),
+        Command::Update => update::run().await,
         Command::Status => status::run(),
     }
 }
