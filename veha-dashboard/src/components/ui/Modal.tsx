@@ -31,7 +31,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto animate-fade-in"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
@@ -40,7 +40,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }: M
       <div
         className={cn(
           'relative bg-bg-elevated border border-border-default rounded-xl shadow-2xl w-full animate-scale-in',
-          'max-h-[85vh] flex flex-col',
+          'max-h-[90vh] sm:max-h-[85vh] flex flex-col my-auto',
           sizeStyles[size],
         )}
       >
