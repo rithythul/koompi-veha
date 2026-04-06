@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Monitor, Wifi, Megaphone, BarChart3, DollarSign, Clock, WifiOff,
-  AlertTriangle, CirclePlus,
+  AlertTriangle, CirclePlus, Activity, AlertCircle, Info, ShieldAlert,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -12,7 +12,9 @@ import { useBoards } from '../api/boards'
 import { useCampaigns } from '../api/campaigns'
 import { useAdvertisers } from '../api/advertisers'
 import { usePlayLogSummary } from '../api/playlogs'
+import { useAlerts } from '../api/alerts'
 import { Card } from '../components/ui/Card'
+import { Badge } from '../components/ui/Badge'
 import { PageSpinner } from '../components/ui/Spinner'
 import { cn, formatRelativeTime, formatCurrency, formatDate } from '../lib/utils'
 import { useBoardStatus } from '../hooks/useBoardStatus'
@@ -68,6 +70,7 @@ export default function Dashboard() {
   const today = new Date().toISOString().split('T')[0]
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
   const { data: summaryData } = usePlayLogSummary({ start_date: weekAgo, end_date: today })
+  const { data: alertsData } = useAlerts({ per_page: 10, acknowledged: false })
 
   const boards = boardsData?.data ?? []
   const onlineCount = boards.filter((b) => b.status === 'online').length
@@ -76,6 +79,26 @@ export default function Dashboard() {
   const activeCampaigns = activeCampaignsData?.data ?? []
   const allCampaigns = allCampaignsData?.data ?? []
   const advertisers = advData?.data ?? []
+
+  // Fleet uptime: boards seen in last 1 hour vs total
+  const fleetUptime = useMemo(() => {
+    if (boards.length === 0) return null
+    const oneHourAgo = Date.now() - 60 * 60 * 1000
+    const recentlySeenCount = boards.filter((b) => {
+      if (!b.last_seen) return false
+      return new Date(b.last_seen).getTime() > oneHourAgo
+    }).length
+    return Math.round((recentlySeenCount / boards.length) * 100)
+  }, [boards])
+
+  // Board name map for alerts
+  const boardNameMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const b of boards) m.set(b.id, b.name)
+    return m
+  }, [boards])
+
+  const recentAlerts = alertsData?.data ?? []
 
   // Revenue: sum of active campaign budgets
   const totalRevenue = useMemo(() => {
@@ -231,7 +254,22 @@ export default function Dashboard() {
       </div>
 
       {/* Campaign Performance KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <KpiCard
+          icon={Activity}
+          label="Fleet Uptime (1h)"
+          value={fleetUptime != null ? `${fleetUptime}%` : '--'}
+          sub={fleetUptime != null
+            ? fleetUptime >= 90 ? 'Healthy' : fleetUptime >= 70 ? 'Degraded' : 'Critical'
+            : 'No boards'}
+          color={
+            fleetUptime == null || fleetUptime >= 90
+              ? 'bg-status-online/15 text-status-online'
+              : fleetUptime >= 70
+                ? 'bg-status-warning/15 text-status-warning'
+                : 'bg-status-error/15 text-status-error'
+          }
+        />
         <KpiCard
           icon={DollarSign}
           label="Revenue"
@@ -411,6 +449,68 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
+
+      {/* Recent Alerts */}
+      <Card
+        title="Recent Alerts"
+        action={
+          <button
+            onClick={() => navigate('/alerts')}
+            className="text-xs text-accent hover:underline cursor-pointer"
+          >
+            View all
+          </button>
+        }
+      >
+        <div className="space-y-1 max-h-56 overflow-y-auto">
+          {recentAlerts.length === 0 ? (
+            <p className="text-sm text-text-muted py-4 text-center">No unacknowledged alerts</p>
+          ) : (
+            recentAlerts.map((alert) => {
+              const SeverityIcon =
+                alert.severity === 'critical' ? ShieldAlert
+                  : alert.severity === 'warning' ? AlertTriangle
+                    : alert.severity === 'error' ? AlertCircle
+                      : Info
+              const severityColor =
+                alert.severity === 'critical' ? 'text-status-error'
+                  : alert.severity === 'warning' ? 'text-status-warning'
+                    : alert.severity === 'error' ? 'text-status-error'
+                      : 'text-status-info'
+
+              return (
+                <div
+                  key={alert.id}
+                  className="flex items-start gap-2.5 px-2 py-2 rounded-md hover:bg-bg-elevated transition-colors"
+                >
+                  <SeverityIcon className={cn('w-4 h-4 flex-shrink-0 mt-0.5', severityColor)} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-primary">{alert.message}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {alert.board_id && (
+                        <span className="text-xs text-text-muted">
+                          {boardNameMap.get(alert.board_id) ?? alert.board_id.slice(0, 8)}
+                        </span>
+                      )}
+                      <Badge variant={
+                        alert.severity === 'critical' ? 'error'
+                          : alert.severity === 'warning' ? 'warning'
+                            : alert.severity === 'error' ? 'error'
+                              : 'info'
+                      }>
+                        {alert.severity}
+                      </Badge>
+                    </div>
+                  </div>
+                  <span className="text-xs text-text-muted flex-shrink-0">
+                    {formatRelativeTime(alert.created_at)}
+                  </span>
+                </div>
+              )
+            })
+          )}
+        </div>
+      </Card>
     </div>
   )
 }
