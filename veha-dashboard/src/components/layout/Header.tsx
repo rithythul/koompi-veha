@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LogOut, Sun, Moon, Bell } from 'lucide-react'
+import { LogOut, Sun, Moon, Bell, Menu } from 'lucide-react'
 import { useAuthStore } from '../../stores/auth'
 import { useThemeStore } from '../../stores/theme'
 import { useLogout } from '../../api/auth'
@@ -22,7 +22,11 @@ const pageTitles: Record<string, string> = {
   '/users': 'Users',
 }
 
-export function Header() {
+interface HeaderProps {
+  onMenuToggle: () => void
+}
+
+export function Header({ onMenuToggle }: HeaderProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
@@ -43,8 +47,18 @@ export function Header() {
   if (location.pathname.match(/^\/playlists\/.+\/edit/)) displayTitle = 'Edit Playlist'
 
   return (
-    <header className="h-14 bg-bg-sidebar border-b border-border-default flex items-center justify-between px-6 flex-shrink-0">
-      <h2 className="text-base font-semibold text-text-primary">{displayTitle}</h2>
+    <header className="h-14 bg-bg-sidebar border-b border-border-default flex items-center justify-between px-4 sm:px-6 flex-shrink-0">
+      <div className="flex items-center gap-3">
+        {/* Hamburger menu — mobile only */}
+        <button
+          onClick={onMenuToggle}
+          className="lg:hidden p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+          title="Toggle menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+        <h2 className="text-base font-semibold text-text-primary">{displayTitle}</h2>
+      </div>
       <div className="flex items-center gap-3">
         <div id="header-actions" />
         <button
@@ -67,7 +81,7 @@ export function Header() {
           {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
         <div className="flex items-center gap-3 pl-3 border-l border-border-default">
-          <span className="text-xs text-text-secondary">{user?.username}</span>
+          <span className="text-xs text-text-secondary hidden sm:inline">{user?.username}</span>
           <button
             onClick={() => logout.mutate()}
             className="p-1.5 rounded-md text-text-muted hover:text-status-error hover:bg-status-error/10 transition-colors cursor-pointer"

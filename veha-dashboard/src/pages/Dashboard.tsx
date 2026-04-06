@@ -1,13 +1,20 @@
 import { useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Monitor, Wifi, Megaphone, BarChart3 } from 'lucide-react'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import {
+  Monitor, Wifi, Megaphone, BarChart3, DollarSign, Clock, WifiOff,
+  AlertTriangle, CirclePlus,
+} from 'lucide-react'
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, Cell,
+} from 'recharts'
 import { useBoards } from '../api/boards'
 import { useCampaigns } from '../api/campaigns'
+import { useAdvertisers } from '../api/advertisers'
 import { usePlayLogSummary } from '../api/playlogs'
 import { Card } from '../components/ui/Card'
 import { PageSpinner } from '../components/ui/Spinner'
-import { cn, formatRelativeTime } from '../lib/utils'
+import { cn, formatRelativeTime, formatCurrency, formatDate } from '../lib/utils'
 import { useBoardStatus } from '../hooks/useBoardStatus'
 
 function KpiCard({
@@ -16,15 +23,24 @@ function KpiCard({
   value,
   sub,
   color,
+  onClick,
 }: {
   icon: typeof Monitor
   label: string
   value: string | number
   sub?: string
   color: string
+  onClick?: () => void
 }) {
+  const Wrapper = onClick ? 'button' : 'div'
   return (
-    <div className="bg-bg-surface border border-border-default rounded-lg p-4">
+    <Wrapper
+      onClick={onClick}
+      className={cn(
+        'bg-bg-surface border border-border-default rounded-lg p-4 text-left',
+        onClick && 'hover:border-border-hover transition-colors cursor-pointer',
+      )}
+    >
       <div className="flex items-center gap-3">
         <div className={cn('w-9 h-9 rounded-lg flex items-center justify-center', color)}>
           <Icon className="w-4.5 h-4.5" />
@@ -35,15 +51,19 @@ function KpiCard({
         </div>
       </div>
       {sub && <p className="text-xs text-text-muted mt-2">{sub}</p>}
-    </div>
+    </Wrapper>
   )
 }
+
+const BAR_COLORS = ['#8b7cf8', '#f59e0b', '#10b981', '#ec4899', '#6366f1']
 
 export default function Dashboard() {
   useBoardStatus()
   const navigate = useNavigate()
   const { data: boardsData, isLoading: boardsLoading } = useBoards({ per_page: 200 })
-  const { data: campaignsData } = useCampaigns({ status: 'active', per_page: 1 })
+  const { data: activeCampaignsData } = useCampaigns({ status: 'active', per_page: 200 })
+  const { data: allCampaignsData } = useCampaigns({ per_page: 200 })
+  const { data: advData } = useAdvertisers({ per_page: 200 })
 
   const today = new Date().toISOString().split('T')[0]
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
@@ -51,9 +71,28 @@ export default function Dashboard() {
 
   const boards = boardsData?.data ?? []
   const onlineCount = boards.filter((b) => b.status === 'online').length
+  const offlineCount = boards.filter((b) => b.status !== 'online').length
   const totalBoards = boardsData?.total ?? 0
-  const activeCampaigns = campaignsData?.total ?? 0
+  const activeCampaigns = activeCampaignsData?.data ?? []
+  const allCampaigns = allCampaignsData?.data ?? []
+  const advertisers = advData?.data ?? []
 
+  // Revenue: sum of active campaign budgets
+  const totalRevenue = useMemo(() => {
+    return activeCampaigns.reduce((sum, c) => sum + (c.budget ?? 0), 0)
+  }, [activeCampaigns])
+
+  // Expiring soon: campaigns ending within 7 days
+  const expiringSoon = useMemo(() => {
+    const sevenDaysFromNow = Date.now() + 7 * 86400000
+    return allCampaigns.filter((c) => {
+      if (c.status !== 'active') return false
+      const endDate = new Date(c.end_date).getTime()
+      return endDate > Date.now() && endDate <= sevenDaysFromNow
+    })
+  }, [allCampaigns])
+
+  // Today's plays
   const todayPlays = useMemo(() => {
     if (!summaryData) return 0
     return summaryData
@@ -61,6 +100,7 @@ export default function Dashboard() {
       .reduce((acc, s) => acc + s.play_count, 0)
   }, [summaryData, today])
 
+  // 7-day chart data
   const chartData = useMemo(() => {
     if (!summaryData) return []
     const byDate = new Map<string, number>()
@@ -70,16 +110,98 @@ export default function Dashboard() {
     return Array.from(byDate.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, plays]) => ({
-        date: date.slice(5), // MM-DD
+        date: date.slice(5),
         plays,
       }))
   }, [summaryData])
+
+  // Revenue by advertiser (top 5)
+  const revenueByAdvertiser = useMemo(() => {
+    const byAdvId = new Map<string, number>()
+    for (const c of activeCampaigns) {
+      if (c.budget) {
+        byAdvId.set(c.advertiser_id, (byAdvId.get(c.advertiser_id) ?? 0) + c.budget)
+      }
+    }
+    return Array.from(byAdvId.entries())
+      .map(([advId, total]) => ({
+        name: advertisers.find((a) => a.id === advId)?.name ?? 'Unknown',
+        revenue: total,
+      }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 5)
+  }, [activeCampaigns, advertisers])
+
+  // Recent activity feed
+  const activityFeed = useMemo(() => {
+    const items: Array<{
+      icon: typeof Monitor
+      iconColor: string
+      text: string
+      time: string
+      sortKey: number
+    }> = []
+
+    // Last 5 boards by last_seen
+    const recentBoards = [...boards]
+      .filter((b) => b.last_seen)
+      .sort((a, b) => new Date(b.last_seen!).getTime() - new Date(a.last_seen!).getTime())
+      .slice(0, 5)
+
+    for (const board of recentBoards) {
+      const isOnline = board.status === 'online'
+      items.push({
+        icon: isOnline ? Wifi : WifiOff,
+        iconColor: isOnline ? 'text-status-online' : 'text-status-neutral',
+        text: `${board.name} went ${isOnline ? 'online' : 'offline'}`,
+        time: formatRelativeTime(board.last_seen),
+        sortKey: new Date(board.last_seen!).getTime(),
+      })
+    }
+
+    // Last 3 active campaigns (recent ones)
+    const recentCampaigns = [...activeCampaigns]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 3)
+
+    for (const campaign of recentCampaigns) {
+      items.push({
+        icon: CirclePlus,
+        iconColor: 'text-accent',
+        text: `Campaign "${campaign.name}" created`,
+        time: formatRelativeTime(campaign.created_at),
+        sortKey: new Date(campaign.created_at).getTime(),
+      })
+    }
+
+    return items.sort((a, b) => b.sortKey - a.sortKey).slice(0, 8)
+  }, [boards, activeCampaigns])
 
   if (boardsLoading) return <PageSpinner />
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* KPI Cards */}
+      <h1 className="text-xl font-bold text-text-primary">Overview</h1>
+
+      {/* Expiring Campaigns Warning */}
+      {expiringSoon.length > 0 && (
+        <button
+          onClick={() => navigate('/campaigns')}
+          className="w-full flex items-start gap-3 bg-status-warning/10 border border-status-warning/30 rounded-lg p-4 text-left cursor-pointer hover:bg-status-warning/15 transition-colors"
+        >
+          <AlertTriangle className="w-5 h-5 text-status-warning flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-text-primary">
+              {expiringSoon.length} campaign{expiringSoon.length > 1 ? 's' : ''} expiring within 7 days
+            </p>
+            <p className="text-xs text-text-secondary mt-1">
+              {expiringSoon.map((c) => `${c.name} (${formatDate(c.end_date)})`).join(' · ')}
+            </p>
+          </div>
+        </button>
+      )}
+
+      {/* Primary KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard
           icon={Monitor}
@@ -97,7 +219,7 @@ export default function Dashboard() {
         <KpiCard
           icon={Megaphone}
           label="Active Campaigns"
-          value={activeCampaigns}
+          value={activeCampaigns.length}
           color="bg-status-warning/15 text-status-warning"
         />
         <KpiCard
@@ -105,6 +227,33 @@ export default function Dashboard() {
           label="Plays Today"
           value={todayPlays}
           color="bg-status-info/15 text-status-info"
+        />
+      </div>
+
+      {/* Campaign Performance KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KpiCard
+          icon={DollarSign}
+          label="Revenue"
+          value={formatCurrency(totalRevenue > 0 ? totalRevenue : null)}
+          sub="Sum of active campaign budgets"
+          color="bg-status-online/15 text-status-online"
+        />
+        <KpiCard
+          icon={Clock}
+          label="Expiring Soon"
+          value={expiringSoon.length}
+          sub={expiringSoon.length > 0 ? 'Within next 7 days' : 'No campaigns expiring soon'}
+          color="bg-status-warning/15 text-status-warning"
+          onClick={() => navigate('/campaigns')}
+        />
+        <KpiCard
+          icon={WifiOff}
+          label="Offline Alerts"
+          value={offlineCount}
+          sub={offlineCount > 0 ? `${offlineCount} board${offlineCount > 1 ? 's' : ''} need attention` : 'All boards online'}
+          color="bg-status-error/15 text-status-error"
+          onClick={() => navigate('/alerts')}
         />
       </div>
 
@@ -191,6 +340,73 @@ export default function Dashboard() {
                     </span>
                   </button>
                 ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* Revenue by Advertiser + Recent Activity */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+        {/* Revenue by Advertiser */}
+        <Card title="Revenue by Advertiser" className="xl:col-span-3">
+          {revenueByAdvertiser.length > 0 ? (
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenueByAdvertiser} layout="vertical">
+                  <XAxis
+                    type="number"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: 'var(--theme-chart-tick)', fontSize: 11 }}
+                    tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: 'var(--theme-chart-tick)', fontSize: 11 }}
+                    width={100}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--theme-chart-tooltip-bg)',
+                      border: '1px solid var(--theme-chart-tooltip-border)',
+                      borderRadius: '8px',
+                      color: 'var(--theme-chart-tooltip-color)',
+                      fontSize: '12px',
+                    }}
+                    formatter={(value) => [formatCurrency(value as number), 'Budget']}
+                  />
+                  <Bar dataKey="revenue" radius={[0, 4, 4, 0]}>
+                    {revenueByAdvertiser.map((_, i) => (
+                      <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-sm text-text-muted py-8 text-center">No revenue data yet</p>
+          )}
+        </Card>
+
+        {/* Recent Activity */}
+        <Card title="Recent Activity" className="xl:col-span-2">
+          <div className="space-y-1 max-h-48 overflow-y-auto">
+            {activityFeed.length === 0 ? (
+              <p className="text-sm text-text-muted py-4 text-center">No recent activity</p>
+            ) : (
+              activityFeed.map((item, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-md"
+                >
+                  <item.icon className={cn('w-3.5 h-3.5 flex-shrink-0', item.iconColor)} />
+                  <span className="text-sm text-text-primary truncate flex-1">{item.text}</span>
+                  <span className="text-xs text-text-muted flex-shrink-0">{item.time}</span>
+                </div>
+              ))
             )}
           </div>
         </Card>

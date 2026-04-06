@@ -17,6 +17,7 @@ import {
   Users,
   PanelLeftClose,
   PanelLeft,
+  X,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuthStore } from '../../stores/auth'
@@ -78,7 +79,12 @@ const sections: NavSection[] = [
   },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  mobileOpen: boolean
+  onMobileClose: () => void
+}
+
+export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const location = useLocation()
   const navigate = useNavigate()
@@ -99,29 +105,36 @@ export function Sidebar() {
     return location.pathname.startsWith(path)
   }
 
-  return (
-    <aside
-      className={cn(
-        'bg-bg-sidebar border-r border-border-default flex flex-col flex-shrink-0 transition-all duration-200',
-        collapsed ? 'w-[56px]' : 'w-60',
-      )}
-    >
+  const handleNavigate = (path: string) => {
+    navigate(path)
+    onMobileClose()
+  }
+
+  const sidebarContent = (
+    <>
       {/* Brand */}
       <div className={cn(
         'flex items-center gap-3 border-b border-border-default flex-shrink-0 h-14',
-        collapsed ? 'px-3 justify-center' : 'px-4',
+        collapsed ? 'px-3 justify-center lg:justify-center' : 'px-4',
       )}>
         <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center flex-shrink-0">
           <span className="text-white font-bold text-sm">V</span>
         </div>
         {!collapsed && (
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="text-sm font-bold text-text-primary tracking-tight leading-none">
               Veha
             </h1>
             <p className="text-[10px] text-text-muted mt-0.5">Billboard Platform</p>
           </div>
         )}
+        {/* Mobile close button */}
+        <button
+          onClick={onMobileClose}
+          className="lg:hidden p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Navigation */}
@@ -142,7 +155,7 @@ export function Sidebar() {
                 return (
                   <button
                     key={item.path}
-                    onClick={() => navigate(item.path)}
+                    onClick={() => handleNavigate(item.path)}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'flex items-center gap-2.5 w-full rounded-md text-sm font-medium transition-colors cursor-pointer',
@@ -162,8 +175,8 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Collapse toggle */}
-      <div className="border-t border-border-default p-2">
+      {/* Collapse toggle — desktop only */}
+      <div className="border-t border-border-default p-2 hidden lg:block">
         <button
           onClick={() => setCollapsed(!collapsed)}
           className={cn(
@@ -184,6 +197,36 @@ export function Sidebar() {
           <p className="text-[10px] text-text-muted px-3 mt-1">KOOMPI VEHA v0.2.0</p>
         )}
       </div>
-    </aside>
+    </>
+  )
+
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <aside
+        className={cn(
+          'bg-bg-sidebar border-r border-border-default flex-col flex-shrink-0 transition-all duration-200 hidden lg:flex',
+          collapsed ? 'w-[56px]' : 'w-60',
+        )}
+      >
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          {/* Backdrop */}
+          <button
+            onClick={onMobileClose}
+            className="absolute inset-0 bg-black/50 cursor-pointer"
+            aria-label="Close sidebar"
+          />
+          {/* Slide-over panel */}
+          <aside className="absolute inset-y-0 left-0 w-60 bg-bg-sidebar border-r border-border-default flex flex-col animate-slide-in-left">
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+    </>
   )
 }

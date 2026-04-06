@@ -20,6 +20,7 @@ const statusVariant: Record<string, 'info' | 'online' | 'warning' | 'default'> =
   draft: 'info',
   active: 'online',
   paused: 'warning',
+  completed: 'default',
 }
 
 export default function Campaigns() {
@@ -51,6 +52,7 @@ export default function Campaigns() {
     draft: campaigns.filter((c) => c.status === 'draft'),
     active: campaigns.filter((c) => c.status === 'active'),
     paused: campaigns.filter((c) => c.status === 'paused'),
+    completed: campaigns.filter((c) => c.status === 'completed'),
   }
 
   const openCreate = () => {
@@ -121,7 +123,8 @@ export default function Campaigns() {
 
   return (
     <div className="animate-fade-in">
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-xl font-bold text-text-primary">Campaigns</h1>
         <div className="flex items-center gap-2">
           <div className="flex bg-bg-surface border border-border-default rounded-lg overflow-hidden">
             <button
@@ -155,8 +158,8 @@ export default function Campaigns() {
           action={{ label: 'New Campaign', onClick: openCreate }}
         />
       ) : view === 'kanban' ? (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {(['draft', 'active', 'paused'] as const).map((status) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          {(['draft', 'active', 'paused', 'completed'] as const).map((status) => (
             <div key={status}>
               <div className="flex items-center gap-2 mb-3">
                 <Badge variant={statusVariant[status]}>{status}</Badge>

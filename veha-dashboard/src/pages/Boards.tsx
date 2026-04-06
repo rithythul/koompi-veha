@@ -374,6 +374,7 @@ export default function Boards() {
 
   return (
     <div className="animate-fade-in">
+      <h1 className="text-xl font-bold text-text-primary mb-4">Board Fleet</h1>
       {/* Toolbar: Search + Filters + Views + New Board */}
       <div className="flex items-center gap-2 mb-4">
         <div className="relative min-w-[180px] max-w-xs">
